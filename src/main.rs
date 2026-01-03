@@ -1,4 +1,5 @@
 mod app;
+mod models;
 mod ui;
 
 use std::io;
@@ -6,7 +7,7 @@ use std::io;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
 
-use app::App;
+use app::{App, Panel};
 
 fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();
@@ -19,10 +20,8 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
     let mut app = App::new();
 
     loop {
-        // Render the UI
         terminal.draw(|frame| ui::render(frame, &app))?;
 
-        // Handle input
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
                 continue;
@@ -35,7 +34,7 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
             }
 
             match key.code {
-                // Quit
+                // Quit (q / ctrl + c)
                 KeyCode::Char('q') => app.quit(),
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
 
@@ -50,9 +49,32 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
                         app.focus_next();
                     }
                 }
-                KeyCode::BackTab => app.focus_prev(),
+                KeyCode::BackTab => app.focus_prev(),  // Shift + Tab
                 KeyCode::Char('h') | KeyCode::Left => app.focus_prev(),
                 KeyCode::Char('l') | KeyCode::Right => app.focus_next(),
+
+                // Sidebar navigation (when sidebar is focused)
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if app.focused_panel == Panel::Sidebar {
+                        app.select_next_request();
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if app.focused_panel == Panel::Sidebar {
+                        app.select_prev_request();
+                    }
+                }
+
+                KeyCode::Char('n') => {
+                    if app.focused_panel == Panel::Sidebar {
+                        app.add_request(models::Request::default());
+                    }
+                }
+                KeyCode::Char('d') => {
+                    if app.focused_panel == Panel::Sidebar {
+                        app.delete_selected_request();
+                    }
+                }
 
                 _ => {}
             }

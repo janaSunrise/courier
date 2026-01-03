@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::app::{App, Panel};
+use crate::models::HttpMethod;
 
 pub mod theme {
     use ratatui::style::Color;
@@ -20,6 +21,8 @@ pub mod theme {
     pub const ACCENT: Color = Color::Rgb(115, 210, 22);
     pub const METHOD_GET: Color = Color::Rgb(115, 210, 22);
     pub const METHOD_POST: Color = Color::Rgb(252, 186, 3);
+    pub const METHOD_PUT: Color = Color::Rgb(88, 166, 255);
+    pub const METHOD_PATCH: Color = Color::Rgb(163, 113, 247);
     pub const METHOD_DELETE: Color = Color::Rgb(252, 78, 78);
 }
 
@@ -67,7 +70,7 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let block = Block::default()
-        .title(" Requests ")
+        .title(format!(" Requests ({}) ", app.requests.len()))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(theme::BG));
@@ -75,26 +78,60 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let content = Paragraph::new(Text::from(vec![
-        Line::from(vec![
-            Span::styled("GET  ", Style::default().fg(theme::METHOD_GET)),
-            Span::styled("/api/users", Style::default().fg(theme::TEXT)),
-            Span::styled("  10m", Style::default().fg(theme::TEXT_DIM)),
-        ]),
-        Line::from(vec![
-            Span::styled("POST ", Style::default().fg(theme::METHOD_POST)),
-            Span::styled("/api/auth", Style::default().fg(theme::TEXT)),
-            Span::styled("  2h", Style::default().fg(theme::TEXT_DIM)),
-        ]),
-        Line::from(vec![
-            Span::styled("DEL  ", Style::default().fg(theme::METHOD_DELETE)),
-            Span::styled("/api/users/1", Style::default().fg(theme::TEXT)),
-            Span::styled("  1d", Style::default().fg(theme::TEXT_DIM)),
-        ]),
-    ]))
-    .style(Style::default().bg(theme::BG));
+    // Build request list lines
+    let lines: Vec<Line> = app
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(i, req)| {
+            let is_selected = i == app.selected_request;
+            let method_color = method_color(req.method);
+
+            // Truncate URL to fit
+            let max_url_len = inner.width.saturating_sub(12) as usize;
+            let url_display = if req.url.len() > max_url_len {
+                format!("{}...", &req.url[..max_url_len.saturating_sub(3)])
+            } else {
+                req.url.clone()
+            };
+
+            let bg = if is_selected {
+                theme::BG_HIGHLIGHT
+            } else {
+                theme::BG
+            };
+
+            let prefix = if is_selected { ">" } else { " " };
+
+            Line::from(vec![
+                Span::styled(prefix, Style::default().fg(theme::ACCENT).bg(bg)),
+                Span::styled(
+                    format!("{:5}", req.method.as_str()),
+                    Style::default().fg(method_color).bg(bg),
+                ),
+                Span::styled(url_display, Style::default().fg(theme::TEXT).bg(bg)),
+                Span::styled(
+                    format!(" {:>4}", req.relative_time()),
+                    Style::default().fg(theme::TEXT_DIM).bg(bg),
+                ),
+            ])
+        })
+        .collect();
+
+    let content = Paragraph::new(Text::from(lines)).style(Style::default().bg(theme::BG));
 
     frame.render_widget(content, inner);
+}
+
+fn method_color(method: HttpMethod) -> ratatui::style::Color {
+    match method {
+        HttpMethod::Get => theme::METHOD_GET,
+        HttpMethod::Post => theme::METHOD_POST,
+        HttpMethod::Put => theme::METHOD_PUT,
+        HttpMethod::Patch => theme::METHOD_PATCH,
+        HttpMethod::Delete => theme::METHOD_DELETE,
+        _ => theme::TEXT_DIM,
+    }
 }
 
 /// Render the request editor panel
@@ -115,20 +152,28 @@ fn render_request_editor(frame: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let url_bar = Paragraph::new(Line::from(vec![
-        Span::styled(
-            " GET ",
-            Style::default().fg(theme::BG).bg(theme::METHOD_GET),
-        ),
-        Span::styled(" ", Style::default()),
-        Span::styled(
-            "https://api.example.com/users",
-            Style::default().fg(theme::TEXT),
-        ),
-    ]))
-    .style(Style::default().bg(theme::BG));
+    // Show currently selected request
+    if let Some(req) = app.current_request() {
+        let method_color = method_color(req.method);
+        let url_bar = Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!(" {} ", req.method.as_str()),
+                Style::default().fg(theme::BG).bg(method_color),
+            ),
+            Span::styled(" ", Style::default()),
+            Span::styled(&req.url, Style::default().fg(theme::TEXT)),
+        ]))
+        .style(Style::default().bg(theme::BG));
 
-    frame.render_widget(url_bar, inner);
+        frame.render_widget(url_bar, inner);
+    } else {
+        let empty = Paragraph::new(Span::styled(
+            "No request selected",
+            Style::default().fg(theme::TEXT_DIM),
+        ))
+        .style(Style::default().bg(theme::BG));
+        frame.render_widget(empty, inner);
+    }
 }
 
 /// Render the response panel
@@ -188,9 +233,8 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
 
 /// Render the help overlay with keybinds
 fn render_help_overlay(frame: &mut Frame, area: Rect) {
-    // Center the help box
     let help_width = 50;
-    let help_height = 12;
+    let help_height = 16;
     let help_area = Rect {
         x: area.width.saturating_sub(help_width) / 2,
         y: area.height.saturating_sub(help_height) / 2,
@@ -198,7 +242,6 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         height: help_height.min(area.height),
     };
 
-    // Clear the area behind the popup
     frame.render_widget(Clear, help_area);
 
     let help_text = vec![
@@ -216,6 +259,18 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("h / l            ", Style::default().fg(theme::ACCENT)),
             Span::styled("Previous / Next panel", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("j / k            ", Style::default().fg(theme::ACCENT)),
+            Span::styled("Navigate requests", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("n                ", Style::default().fg(theme::ACCENT)),
+            Span::styled("New request", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("d                ", Style::default().fg(theme::ACCENT)),
+            Span::styled("Delete request", Style::default().fg(theme::TEXT)),
         ]),
         Line::from(vec![
             Span::styled("?                ", Style::default().fg(theme::ACCENT)),
