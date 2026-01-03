@@ -85,6 +85,6 @@ impl Request {
 
 impl Default for Request {
     fn default() -> Self {
-        Self::new(HttpMethod::Get, "https://api.example.com")
+        Self::new(HttpMethod::Get, "")
     }
 }

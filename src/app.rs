@@ -1,4 +1,4 @@
-use crate::models::{HttpMethod, Request};
+use crate::models::{HttpMethod, Request, RequestState, Response};
 
 /// The currently focused panel in the UI
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -50,28 +50,33 @@ pub struct App {
     pub input_method: HttpMethod,
     /// Cursor position in URL input
     pub cursor_position: usize,
+    /// Current request/response state
+    pub request_state: RequestState,
+    /// Scroll position in response body
+    pub response_scroll: usize,
+    /// Scroll position in help overlay
+    pub help_scroll: usize,
 }
 
 impl Default for App {
     fn default() -> Self {
-        let default_url = "https://api.example.com/users".to_string();
+        let default_url = "https://httpbin.org/get".to_string();
         let url_len = default_url.len();
         Self {
             focused_panel: Panel::default(),
             should_quit: false,
             show_help: false,
             requests: vec![
-                Request::new(HttpMethod::Get, "https://api.example.com/users"),
-                Request::new(HttpMethod::Post, "https://api.example.com/auth/login"),
-                Request::new(HttpMethod::Put, "https://api.example.com/users/42"),
-                Request::new(HttpMethod::Delete, "https://api.example.com/sessions"),
-                Request::new(HttpMethod::Get, "https://api.example.com/products"),
+                Request::new(HttpMethod::Get, "https://httpbin.org/get"),
             ],
             selected_request: 0,
             input_mode: false,
             input_url: default_url,
             input_method: HttpMethod::Get,
             cursor_position: url_len,
+            request_state: RequestState::default(),
+            response_scroll: 0,
+            help_scroll: 0,
         }
     }
 }
@@ -87,6 +92,9 @@ impl App {
 
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
+        if self.show_help {
+            self.help_scroll = 0;  // Reset when help is re-opened
+        }
     }
 
     // Panels
@@ -268,6 +276,59 @@ impl App {
             self.input_url = req.url.clone();
             self.input_method = req.method;
             self.cursor_position = self.input_url.len();
+        }
+    }
+
+    // Request state management
+    pub fn set_loading(&mut self) {
+        self.request_state = RequestState::Loading;
+        self.response_scroll = 0;
+    }
+
+    pub fn set_response(&mut self, response: Response) {
+        self.request_state = RequestState::Success(response);
+        self.response_scroll = 0;
+    }
+
+    pub fn set_error(&mut self, error: String) {
+        self.request_state = RequestState::Error(error);
+        self.response_scroll = 0;
+    }
+
+    pub fn is_loading(&self) -> bool {
+        matches!(self.request_state, RequestState::Loading)
+    }
+
+    // Response scrolling
+    pub fn scroll_response_up(&mut self, lines: usize) {
+        self.response_scroll = self.response_scroll.saturating_sub(lines);
+    }
+
+    pub fn scroll_response_down(&mut self, lines: usize, max_lines: usize) {
+        if max_lines > 0 {
+            self.response_scroll = (self.response_scroll + lines).min(max_lines.saturating_sub(1));
+        }
+    }
+
+    pub fn scroll_response_top(&mut self) {
+        self.response_scroll = 0;
+    }
+
+    pub fn scroll_response_bottom(&mut self, max_lines: usize) {
+        if max_lines > 0 {
+            self.response_scroll = max_lines.saturating_sub(1);
+        }
+    }
+
+    // Help scrolling
+    pub fn scroll_help_up(&mut self, lines: usize) {
+        self.help_scroll = self.help_scroll.saturating_sub(lines);
+    }
+
+    pub fn scroll_help_down(&mut self, lines: usize, max_lines: usize) {
+        if max_lines > 0 {
+            // Absolute sorcery
+            self.help_scroll = (self.help_scroll + lines).min(max_lines.saturating_sub(1));
         }
     }
 }
