@@ -179,6 +179,80 @@ impl App {
         self.cursor_position = self.input_url.len();
     }
 
+    /// Move cursor to previous word boundary
+    pub fn move_cursor_word_left(&mut self) {
+        if self.cursor_position == 0 {
+            return;
+        }
+
+        // Skip any spaces before cursor
+        let mut pos = self.cursor_position - 1;
+        let chars: Vec<char> = self.input_url.chars().collect();
+        while pos > 0 && !chars[pos].is_alphanumeric() {
+            pos -= 1;
+        }
+
+        // Skip word characters
+        while pos > 0 && chars[pos - 1].is_alphanumeric() {
+            pos -= 1;
+        }
+        self.cursor_position = pos;
+    }
+
+    /// Move cursor to next word boundary
+    pub fn move_cursor_word_right(&mut self) {
+        let len = self.input_url.len();
+        if self.cursor_position >= len {
+            return;
+        }
+
+        let chars: Vec<char> = self.input_url.chars().collect();
+        let mut pos = self.cursor_position;
+
+        // Skip current word
+        while pos < len && chars[pos].is_alphanumeric() {
+            pos += 1;
+        }
+        // Skip spaces/punctuation
+        while pos < len && !chars[pos].is_alphanumeric() {
+            pos += 1;
+        }
+        self.cursor_position = pos;
+    }
+
+    /// Delete from cursor to start of line (Ctrl+U)
+    pub fn delete_to_start(&mut self) {
+        if self.cursor_position > 0 {
+            self.input_url = self.input_url[self.cursor_position..].to_string();
+            self.cursor_position = 0;
+        }
+    }
+
+    /// Delete from cursor to end of line (Ctrl+K)
+    pub fn delete_to_end(&mut self) {
+        self.input_url.truncate(self.cursor_position);
+    }
+
+    /// Delete word before cursor (Ctrl+W)
+    pub fn delete_word_backward(&mut self) {
+        if self.cursor_position == 0 {
+            return;
+        }
+        let old_pos = self.cursor_position;
+        self.move_cursor_word_left();
+        let new_pos = self.cursor_position;
+        self.input_url = format!(
+            "{}{}",
+            &self.input_url[..new_pos],
+            &self.input_url[old_pos..]
+        );
+    }
+
+    pub fn clear_input(&mut self) {
+        self.input_url.clear();
+        self.cursor_position = 0;
+    }
+
     // Method cycling
     pub fn cycle_method_next(&mut self) {
         self.input_method = self.input_method.next();

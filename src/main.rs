@@ -35,18 +35,38 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
 
             // Input mode handling
             if app.input_mode {
+                let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+                let alt = key.modifiers.contains(KeyModifiers::ALT);
+
                 match key.code {
                     KeyCode::Esc => app.exit_input_mode(),
-                    KeyCode::Char(c) => app.input_char(c),
-                    KeyCode::Backspace => app.delete_char(),
-                    KeyCode::Delete => app.delete_char_forward(),
+
+                    // Text Navigation
+                    KeyCode::Left if ctrl || alt => app.move_cursor_word_left(),
+                    KeyCode::Right if ctrl || alt => app.move_cursor_word_right(),
                     KeyCode::Left => app.move_cursor_left(),
                     KeyCode::Right => app.move_cursor_right(),
-                    KeyCode::Home => app.move_cursor_start(),
-                    KeyCode::End => app.move_cursor_end(),
-                    // Cycle method with Ctrl + m or Tab
+                    KeyCode::Home | KeyCode::Char('a') if ctrl => app.move_cursor_start(),
+                    KeyCode::End | KeyCode::Char('e') if ctrl => app.move_cursor_end(),
+
+                    // Deletion
+                    KeyCode::Backspace if ctrl || alt => app.delete_word_backward(),
+                    KeyCode::Backspace => app.delete_char(),
+                    KeyCode::Delete => app.delete_char_forward(),
+                    KeyCode::Char('u') if ctrl => app.delete_to_start(),
+                    KeyCode::Char('k') if ctrl => app.delete_to_end(),
+                    KeyCode::Char('w') if ctrl => app.delete_word_backward(),
+
+                    // Clear all
+                    KeyCode::Char('l') if ctrl => app.clear_input(),
+
+                    // Method cycling
                     KeyCode::Tab => app.cycle_method_next(),
                     KeyCode::BackTab => app.cycle_method_prev(),
+
+                    // Regular character input
+                    KeyCode::Char(c) => app.input_char(c),
+
                     _ => {}
                 }
                 continue;

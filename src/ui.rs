@@ -12,18 +12,29 @@ use crate::models::HttpMethod;
 pub mod theme {
     use ratatui::style::Color;
 
-    pub const BG: Color = Color::Rgb(26, 26, 46);
-    pub const BG_HIGHLIGHT: Color = Color::Rgb(40, 40, 60);
-    pub const BORDER: Color = Color::Rgb(58, 58, 74);
-    pub const BORDER_FOCUSED: Color = Color::Rgb(115, 210, 22);
-    pub const TEXT: Color = Color::Rgb(224, 224, 224);
-    pub const TEXT_DIM: Color = Color::Rgb(128, 128, 140);
-    pub const ACCENT: Color = Color::Rgb(115, 210, 22);
-    pub const METHOD_GET: Color = Color::Rgb(115, 210, 22);
-    pub const METHOD_POST: Color = Color::Rgb(252, 186, 3);
-    pub const METHOD_PUT: Color = Color::Rgb(88, 166, 255);
-    pub const METHOD_PATCH: Color = Color::Rgb(163, 113, 247);
-    pub const METHOD_DELETE: Color = Color::Rgb(252, 78, 78);
+    // Background
+    pub const BG: Color = Color::Rgb(16, 20, 30);
+    pub const BG_HIGHLIGHT: Color = Color::Rgb(30, 36, 50);
+
+    // Borders
+    pub const BORDER: Color = Color::Rgb(55, 65, 85);
+    pub const BORDER_FOCUSED: Color = Color::Rgb(139, 92, 246);
+
+    // Text
+    pub const TEXT: Color = Color::Rgb(226, 232, 240);
+    pub const TEXT_DIM: Color = Color::Rgb(100, 116, 139);
+
+    // Accent
+    pub const ACCENT: Color = Color::Rgb(139, 92, 246);
+
+    // Methods
+    pub const METHOD_GET: Color = Color::Rgb(52, 211, 153);     // emerald
+    pub const METHOD_POST: Color = Color::Rgb(251, 191, 36);    // amber
+    pub const METHOD_PUT: Color = Color::Rgb(96, 165, 250);     // sky blue
+    pub const METHOD_PATCH: Color = Color::Rgb(192, 132, 252);  // purple
+    pub const METHOD_DELETE: Color = Color::Rgb(251, 113, 133); // rose
+    pub const METHOD_HEAD: Color = Color::Rgb(94, 234, 212);    // teal
+    pub const METHOD_OPTIONS: Color = Color::Rgb(156, 163, 175); // gray
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
@@ -51,9 +62,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_sidebar(frame, app, main_layout[0]);
     render_request_editor(frame, app, main_layout[1]);
     render_response(frame, app, main_layout[2]);
-    // Main layout: end
-    render_status_bar(frame, outer_layout[1]);
-    // Vertical layout: end
+    render_status_bar(frame, app, outer_layout[1]);
 
     if app.show_help {
         render_help_overlay(frame, area);
@@ -251,17 +260,73 @@ fn render_response(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Render the status bar with keybinds
-fn render_status_bar(frame: &mut Frame, area: Rect) {
-    let status = Line::from(vec![
-        Span::styled(" q ", Style::default().fg(theme::BG).bg(theme::TEXT_DIM)),
-        Span::styled(" Quit ", Style::default().fg(theme::TEXT_DIM)),
-        Span::styled(" ? ", Style::default().fg(theme::BG).bg(theme::TEXT_DIM)),
-        Span::styled(" Help ", Style::default().fg(theme::TEXT_DIM)),
-        Span::styled(" Tab ", Style::default().fg(theme::BG).bg(theme::TEXT_DIM)),
-        Span::styled(" Switch Panel ", Style::default().fg(theme::TEXT_DIM)),
-    ]);
+fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
+    let key_style = Style::default().fg(theme::TEXT_DIM);
+    let sep_style = Style::default().fg(theme::BORDER);
 
-    let status_bar = Paragraph::new(status).style(Style::default().bg(theme::BG));
+    // Context aware hints
+    let hints = if app.input_mode {
+        vec![
+            Span::styled("Tab", key_style),
+            Span::styled(" method  ", sep_style),
+            Span::styled("Esc", key_style),
+            Span::styled(" done", sep_style),
+        ]
+    } else {
+        match app.focused_panel {
+            Panel::Sidebar => vec![
+                Span::styled("j/k", key_style),
+                Span::styled(" nav  ", sep_style),
+                Span::styled("Enter", key_style),
+                Span::styled(" edit  ", sep_style),
+                Span::styled("n", key_style),
+                Span::styled(" new  ", sep_style),
+                Span::styled("d", key_style),
+                Span::styled(" del", sep_style),
+            ],
+            Panel::RequestEditor => vec![
+                Span::styled("i", key_style),
+                Span::styled(" edit  ", sep_style),
+                Span::styled("Tab", key_style),
+                Span::styled(" next", sep_style),
+            ],
+            Panel::Response => vec![
+                Span::styled("Tab", key_style),
+                Span::styled(" next", sep_style),
+            ],
+        }
+    };
+
+    // Mode indicator
+    let mode = if app.input_mode {
+        Span::styled(" EDIT ", Style::default().fg(theme::BG).bg(theme::ACCENT))
+    } else {
+        Span::styled(" NORMAL ", Style::default().fg(theme::BG).bg(theme::TEXT_DIM))
+    };
+
+    // Left side: mode + hints
+    let mut left_spans = vec![mode, Span::styled("  ", sep_style)];
+    left_spans.extend(hints);
+
+    // Right side: help + app name
+    let right_spans = vec![
+        Span::styled("?", key_style),
+        Span::styled(" help  ", sep_style),
+        Span::styled("q", key_style),
+        Span::styled(" quit  ", sep_style),
+        Span::styled("courier", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(" ", sep_style),
+    ];
+    let left_len: usize = left_spans.iter().map(|s| s.width()).sum();
+    let right_len: usize = right_spans.iter().map(|s| s.width()).sum();
+    let padding = area.width.saturating_sub(left_len as u16 + right_len as u16) as usize;
+
+    let mut all_spans = left_spans;
+    all_spans.push(Span::styled(" ".repeat(padding), sep_style));
+    all_spans.extend(right_spans);
+
+    let status_bar = Paragraph::new(Line::from(all_spans))
+        .style(Style::default().bg(theme::BG));
 
     frame.render_widget(status_bar, area);
 }
@@ -269,7 +334,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
 /// Render the help overlay with keybinds
 fn render_help_overlay(frame: &mut Frame, area: Rect) {
     let help_width = 44;
-    let help_height = 20;
+    let help_height = 24;
     let help_area = Rect {
         x: area.width.saturating_sub(help_width) / 2,
         y: area.height.saturating_sub(help_height) / 2,
@@ -323,6 +388,22 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         ]),
         Line::from(""),
         Line::from(Span::styled("EDIT MODE", section_style)),
+        Line::from(vec![
+            Span::styled("  Ctrl+←/→      ", key_style),
+            Span::styled("Move by word", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+A/E      ", key_style),
+            Span::styled("Start / End of line", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+W        ", key_style),
+            Span::styled("Delete word", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+U/K      ", key_style),
+            Span::styled("Delete to start/end", desc_style),
+        ]),
         Line::from(vec![
             Span::styled("  Tab           ", key_style),
             Span::styled("Cycle HTTP method", desc_style),
