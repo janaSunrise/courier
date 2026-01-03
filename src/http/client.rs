@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use reqwest::Client;
 use tokio::sync::mpsc;
 
-use crate::models::{HttpMethod, Response};
+use crate::models::{HttpMethod, KeyValue, Response};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
@@ -13,6 +13,14 @@ pub enum HttpResult {
     Error(String),
 }
 
+pub struct RequestData {
+    pub method: HttpMethod,
+    pub url: String,
+    pub params: Vec<KeyValue>,
+    pub headers: Vec<KeyValue>,
+    pub body: String,
+}
+
 fn build_client() -> Result<Client, reqwest::Error> {
     Client::builder()
         .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
@@ -20,25 +28,22 @@ fn build_client() -> Result<Client, reqwest::Error> {
         .build()
 }
 
-pub async fn send_request(
-    method: HttpMethod,
-    url: String,
-    tx: mpsc::UnboundedSender<HttpResult>,
-) {
-    
-    let result = execute_request(method, url).await;
+pub async fn send_request(data: RequestData, tx: mpsc::UnboundedSender<HttpResult>) {
+    let result = execute_request(data).await;
     let _ = tx.send(result);
 }
 
-async fn execute_request(method: HttpMethod, url: String) -> HttpResult {
+async fn execute_request(data: RequestData) -> HttpResult {
     let client = match build_client() {
         Ok(c) => c,
         Err(e) => return HttpResult::Error(format!("Failed to create client: {}", e)),
     };
 
+    let url = build_url_with_params(&data.url, &data.params);
+
     let start = Instant::now();
 
-    let request = match method {
+    let mut request = match data.method {
         HttpMethod::Get => client.get(&url),
         HttpMethod::Post => client.post(&url),
         HttpMethod::Put => client.put(&url),
@@ -47,6 +52,29 @@ async fn execute_request(method: HttpMethod, url: String) -> HttpResult {
         HttpMethod::Head => client.head(&url),
         HttpMethod::Options => client.request(reqwest::Method::OPTIONS, &url),
     };
+
+    for header in &data.headers {
+        if header.enabled && !header.key.is_empty() {
+            request = request.header(&header.key, &header.value);
+        }
+    }
+
+    if !data.body.is_empty() {
+        let has_content_type = data.headers.iter().any(|h| {
+            h.enabled && h.key.to_lowercase() == "content-type"
+        });
+
+        if !has_content_type {
+            // Try to detect if it's JSON
+            if data.body.trim().starts_with('{') || data.body.trim().starts_with('[') {
+                request = request.header("Content-Type", "application/json");
+            } else {
+                request = request.header("Content-Type", "text/plain");
+            }
+        }
+
+        request = request.body(data.body);
+    }
 
     let response = match request.send().await {
         Ok(r) => r,
@@ -98,4 +126,27 @@ async fn execute_request(method: HttpMethod, url: String) -> HttpResult {
         elapsed,
         size_bytes,
     })
+}
+
+fn build_url_with_params(base_url: &str, params: &[KeyValue]) -> String {
+    let enabled_params: Vec<_> = params
+        .iter()
+        .filter(|p| p.enabled && !p.key.is_empty())
+        .collect();
+
+    if enabled_params.is_empty() {
+        return base_url.to_string();
+    }
+
+    let query: String = enabled_params
+        .iter()
+        .map(|p| format!("{}={}", urlencoding::encode(&p.key), urlencoding::encode(&p.value)))
+        .collect::<Vec<_>>()
+        .join("&");
+
+    if base_url.contains('?') {
+        format!("{}&{}", base_url, query)
+    } else {
+        format!("{}?{}", base_url, query)
+    }
 }

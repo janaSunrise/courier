@@ -2,17 +2,12 @@ use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct Response {
-    /// HTTP status code (e.g., 200, 404, 500)
     pub status: u16,
-    /// Status text (e.g., "OK", "Not Found")
     pub status_text: String,
-    /// Response headers as key-value pairs
+    #[allow(dead_code)]
     pub headers: Vec<(String, String)>,
-    /// Response body as string
     pub body: String,
-    /// Request duration
     pub elapsed: Duration,
-    /// Size of response body in bytes
     pub size_bytes: usize,
 }
 
@@ -39,18 +34,6 @@ impl Response {
         }
     }
 
-    pub fn content_type(&self) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
-            .map(|(_, v)| v.as_str())
-    }
-
-    pub fn is_json(&self) -> bool {
-        self.content_type()
-            .map(|ct| ct.contains("application/json"))
-            .unwrap_or(false)
-    }
 }
 
 #[derive(Debug, Clone)]

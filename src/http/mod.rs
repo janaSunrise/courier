@@ -1,3 +1,3 @@
 mod client;
 
-pub use client::{send_request, HttpResult};
+pub use client::{send_request, HttpResult, RequestData};

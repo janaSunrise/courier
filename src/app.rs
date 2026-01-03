@@ -1,6 +1,9 @@
-use crate::models::{HttpMethod, Request, RequestState, Response};
+use tui_input::Input;
+use tui_textarea::TextArea;
+use tui_widget_list::ListState;
 
-/// The currently focused panel in the UI
+use crate::models::{HttpMethod, KeyValue, Request, RequestState, Response};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Panel {
     #[default]
@@ -10,7 +13,6 @@ pub enum Panel {
 }
 
 impl Panel {
-    /// Move to the next panel (wrapping around)
     pub fn next(self) -> Self {
         match self {
             Panel::Sidebar => Panel::RequestEditor,
@@ -19,7 +21,6 @@ impl Panel {
         }
     }
 
-    /// Move to the previous panel (wrapping around)
     pub fn prev(self) -> Self {
         match self {
             Panel::Sidebar => Panel::Response,
@@ -29,57 +30,147 @@ impl Panel {
     }
 }
 
-/// Main application state
-#[derive(Debug)]
-pub struct App {
-    /// Currently focused panel
-    pub focused_panel: Panel,
-    /// Whether the app should quit
-    pub should_quit: bool,
-    /// Whether to show help overlay
-    pub show_help: bool,
-    /// List of requests in history
-    pub requests: Vec<Request>,
-    /// Currently selected request index in sidebar
-    pub selected_request: usize,
-    /// Whether we're in URL input mode
-    pub input_mode: bool,
-    /// Current URL being edited
-    pub input_url: String,
-    /// Current HTTP method
-    pub input_method: HttpMethod,
-    /// Cursor position in URL input
-    pub cursor_position: usize,
-    /// Current request/response state
-    pub request_state: RequestState,
-    /// Scroll position in response body
-    pub response_scroll: usize,
-    /// Scroll position in help overlay
-    pub help_scroll: usize,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RequestTab {
+    #[default]
+    Params,
+    Headers,
+    Body,
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self {
-            focused_panel: Panel::default(),
-            should_quit: false,
-            show_help: false,
-            requests: vec![],
-            selected_request: 0,
-            input_mode: false,
-            input_url: String::new(),
-            input_method: HttpMethod::Get,
-            cursor_position: 0,
-            request_state: RequestState::default(),
-            response_scroll: 0,
-            help_scroll: 0,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EditFocus {
+    #[default]
+    None,
+    Url,
+    KeyValue,
+    Body,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KvField {
+    #[default]
+    Key,
+    Value,
+}
+
+impl KvField {
+    pub fn toggle(self) -> Self {
+        match self {
+            KvField::Key => KvField::Value,
+            KvField::Value => KvField::Key,
         }
     }
 }
 
-impl App {
+#[derive(Default)]
+pub struct KvEditor {
+    pub selected: usize,
+    pub field: KvField,
+    pub key_input: Input,
+    pub value_input: Input,
+}
+
+impl KvEditor {
+    pub fn reset(&mut self) {
+        self.selected = 0;
+        self.field = KvField::Key;
+        self.key_input.reset();
+        self.value_input.reset();
+    }
+
+    pub fn select_next(&mut self, len: usize) {
+        if len > 0 {
+            self.selected = (self.selected + 1) % len;
+        }
+    }
+
+    pub fn select_prev(&mut self, len: usize) {
+        if len > 0 {
+            self.selected = self.selected.checked_sub(1).unwrap_or(len - 1);
+        }
+    }
+
+    pub fn toggle_field(&mut self) {
+        self.field = self.field.toggle();
+    }
+
+    pub fn current_input_mut(&mut self) -> &mut Input {
+        match self.field {
+            KvField::Key => &mut self.key_input,
+            KvField::Value => &mut self.value_input,
+        }
+    }
+
+    pub fn sync_from_item(&mut self, item: &KeyValue) {
+        self.key_input = Input::new(item.key.clone());
+        self.value_input = Input::new(item.value.clone());
+    }
+}
+
+pub struct App<'a> {
+    // UI state
+    pub focused_panel: Panel,
+    pub should_quit: bool,
+    pub show_help: bool,
+    pub help_scroll: usize,
+
+    // Sidebar
+    pub requests: Vec<Request>,
+    pub sidebar_state: ListState,
+
+    // Request editor
+    pub active_tab: RequestTab,
+    pub edit_focus: EditFocus,
+
+    // URL
+    pub url_input: Input,
+    pub method: HttpMethod,
+
+    // Params & Headers
+    pub params: Vec<KeyValue>,
+    pub params_editor: KvEditor,
+    pub headers: Vec<KeyValue>,
+    pub headers_editor: KvEditor,
+
+    // Body
+    pub body_editor: TextArea<'a>,
+    pub json_error: Option<String>,
+
+    // Response
+    pub request_state: RequestState,
+    pub response_scroll: usize,
+}
+
+impl<'a> App<'a> {
     pub fn new() -> Self {
-        Self::default()
+        let mut body_editor = TextArea::default();
+        body_editor.set_cursor_line_style(ratatui::style::Style::default());
+
+        Self {
+            focused_panel: Panel::default(),
+            should_quit: false,
+            show_help: false,
+            help_scroll: 0,
+            requests: vec![],
+            sidebar_state: ListState::default(),
+            active_tab: RequestTab::default(),
+            edit_focus: EditFocus::None,
+            url_input: Input::default(),
+            method: HttpMethod::Get,
+            params: vec![],
+            params_editor: KvEditor::default(),
+            headers: vec![],
+            headers_editor: KvEditor::default(),
+            body_editor,
+            json_error: None,
+            request_state: RequestState::default(),
+            response_scroll: 0,
+        }
+    }
+
+    pub fn url(&self) -> &str {
+        self.url_input.value()
     }
 
     pub fn quit(&mut self) {
@@ -89,193 +180,241 @@ impl App {
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
         if self.show_help {
-            self.help_scroll = 0;  // Reset when help is re-opened
+            self.help_scroll = 0;
         }
     }
 
-    // Panels
-    pub fn focus_next(&mut self) {
-        self.focused_panel = self.focused_panel.next();
+    pub fn is_editing(&self) -> bool {
+        self.edit_focus != EditFocus::None
     }
 
-    pub fn focus_prev(&mut self) {
-        self.focused_panel = self.focused_panel.prev();
+    pub fn body(&self) -> String {
+        self.body_editor.lines().join("\n")
     }
 
-    // Requests UI
-    pub fn select_next_request(&mut self) {
-        if !self.requests.is_empty() {
-            self.selected_request = (self.selected_request + 1) % self.requests.len();
-        }
+    pub fn set_body(&mut self, text: &str) {
+        self.body_editor = TextArea::new(text.lines().map(String::from).collect());
+        self.body_editor.set_cursor_line_style(ratatui::style::Style::default());
+        self.validate_json();
     }
 
-    pub fn select_prev_request(&mut self) {
-        if !self.requests.is_empty() {
-            self.selected_request = self
-                .selected_request
-                .checked_sub(1)
-                .unwrap_or(self.requests.len() - 1);
-        }
-    }
-
-    // Requests CRUD
-    pub fn current_request(&self) -> Option<&Request> {
-        self.requests.get(self.selected_request)
-    }
-
-    pub fn add_request(&mut self, request: Request) {
-        self.requests.insert(0, request);
-        self.selected_request = 0;
-    }
-
-    pub fn delete_selected_request(&mut self) {
-        if !self.requests.is_empty() {
-            self.requests.remove(self.selected_request);
-            if self.selected_request >= self.requests.len() && !self.requests.is_empty() {
-                self.selected_request = self.requests.len() - 1;
+    pub fn format_json(&mut self) {
+        let text = self.body();
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Ok(formatted) = serde_json::to_string_pretty(&value) {
+                self.set_body(&formatted);
+                self.json_error = None;
             }
         }
     }
 
-    // Input mode
-    pub fn enter_input_mode(&mut self) {
-        self.input_mode = true;
-    }
-
-    pub fn exit_input_mode(&mut self) {
-        self.input_mode = false;
-    }
-
-    // URL input editing
-    pub fn input_char(&mut self, c: char) {
-        self.input_url.insert(self.cursor_position, c);
-        self.cursor_position += 1;
-    }
-
-    pub fn delete_char(&mut self) {
-        if self.cursor_position > 0 {
-            self.cursor_position -= 1;
-            self.input_url.remove(self.cursor_position);
+    pub fn validate_json(&mut self) {
+        let text = self.body();
+        if text.trim().is_empty() {
+            self.json_error = None;
+        } else {
+            match serde_json::from_str::<serde_json::Value>(&text) {
+                Ok(_) => self.json_error = None,
+                Err(e) => self.json_error = Some(format!("JSON: {}", e)),
+            }
         }
     }
 
-    pub fn delete_char_forward(&mut self) {
-        if self.cursor_position < self.input_url.len() {
-            self.input_url.remove(self.cursor_position);
+    // Panel navigation
+    pub fn focus_next_panel(&mut self) {
+        self.focused_panel = self.focused_panel.next();
+    }
+
+    pub fn focus_prev_panel(&mut self) {
+        self.focused_panel = self.focused_panel.prev();
+    }
+
+    // Sidebar
+    pub fn selected_request(&self) -> usize {
+        self.sidebar_state.selected.unwrap_or(0)
+    }
+
+    pub fn select_next_request(&mut self) {
+        self.sidebar_state.next();
+    }
+
+    pub fn select_prev_request(&mut self) {
+        self.sidebar_state.previous();
+    }
+
+    pub fn add_request(&mut self, request: Request) {
+        self.requests.insert(0, request);
+        self.sidebar_state.select(Some(0));
+    }
+
+    pub fn delete_selected_request(&mut self) {
+        if !self.requests.is_empty() {
+            let selected = self.selected_request();
+            self.requests.remove(selected);
+            if selected >= self.requests.len() && !self.requests.is_empty() {
+                self.sidebar_state.select(Some(self.requests.len() - 1));
+            }
         }
     }
 
-    pub fn move_cursor_left(&mut self) {
-        self.cursor_position = self.cursor_position.saturating_sub(1);
+    pub fn load_selected_request(&mut self) {
+        let (url, method, params, headers, body) = {
+            if let Some(req) = self.requests.get(self.selected_request()) {
+                (
+                    req.url.clone(),
+                    req.method,
+                    req.params.clone(),
+                    req.headers.clone(),
+                    req.body.clone(),
+                )
+            } else {
+                return;
+            }
+        };
+        self.url_input = Input::new(url);
+        self.method = method;
+        self.params = params;
+        self.headers = headers;
+        self.set_body(&body);
+        self.params_editor.reset();
+        self.headers_editor.reset();
     }
 
-    pub fn move_cursor_right(&mut self) {
-        if self.cursor_position < self.input_url.len() {
-            self.cursor_position += 1;
+    // Editing
+    pub fn start_editing(&mut self, focus: EditFocus) {
+        self.edit_focus = focus;
+        if focus == EditFocus::KeyValue {
+            self.sync_kv_editor_from_items();
         }
     }
 
-    pub fn move_cursor_start(&mut self) {
-        self.cursor_position = 0;
+    pub fn stop_editing(&mut self) {
+        if self.edit_focus == EditFocus::KeyValue {
+            self.sync_kv_items_from_editor();
+        }
+        if self.edit_focus == EditFocus::Body {
+            self.validate_json();
+        }
+        self.edit_focus = EditFocus::None;
     }
 
-    pub fn move_cursor_end(&mut self) {
-        self.cursor_position = self.input_url.len();
-    }
-
-    /// Move cursor to previous word boundary
-    pub fn move_cursor_word_left(&mut self) {
-        if self.cursor_position == 0 {
-            return;
-        }
-
-        // Skip any spaces before cursor
-        let mut pos = self.cursor_position - 1;
-        let chars: Vec<char> = self.input_url.chars().collect();
-        while pos > 0 && !chars[pos].is_alphanumeric() {
-            pos -= 1;
-        }
-
-        // Skip word characters
-        while pos > 0 && chars[pos - 1].is_alphanumeric() {
-            pos -= 1;
-        }
-        self.cursor_position = pos;
-    }
-
-    /// Move cursor to next word boundary
-    pub fn move_cursor_word_right(&mut self) {
-        let len = self.input_url.len();
-        if self.cursor_position >= len {
-            return;
-        }
-
-        let chars: Vec<char> = self.input_url.chars().collect();
-        let mut pos = self.cursor_position;
-
-        // Skip current word
-        while pos < len && chars[pos].is_alphanumeric() {
-            pos += 1;
-        }
-        // Skip spaces/punctuation
-        while pos < len && !chars[pos].is_alphanumeric() {
-            pos += 1;
-        }
-        self.cursor_position = pos;
-    }
-
-    /// Delete from cursor to start of line (Ctrl+U)
-    pub fn delete_to_start(&mut self) {
-        if self.cursor_position > 0 {
-            self.input_url = self.input_url[self.cursor_position..].to_string();
-            self.cursor_position = 0;
-        }
-    }
-
-    /// Delete from cursor to end of line (Ctrl+K)
-    pub fn delete_to_end(&mut self) {
-        self.input_url.truncate(self.cursor_position);
-    }
-
-    /// Delete word before cursor (Ctrl+W)
-    pub fn delete_word_backward(&mut self) {
-        if self.cursor_position == 0 {
-            return;
-        }
-        let old_pos = self.cursor_position;
-        self.move_cursor_word_left();
-        let new_pos = self.cursor_position;
-        self.input_url = format!(
-            "{}{}",
-            &self.input_url[..new_pos],
-            &self.input_url[old_pos..]
-        );
-    }
-
-    pub fn clear_input(&mut self) {
-        self.input_url.clear();
-        self.cursor_position = 0;
-    }
-
-    // Method cycling
     pub fn cycle_method_next(&mut self) {
-        self.input_method = self.input_method.next();
+        self.method = self.method.next();
     }
 
     pub fn cycle_method_prev(&mut self) {
-        self.input_method = self.input_method.prev();
+        self.method = self.method.prev();
     }
 
-    // Load selected request into editor
-    pub fn load_selected_request(&mut self) {
-        if let Some(req) = self.requests.get(self.selected_request) {
-            self.input_url = req.url.clone();
-            self.input_method = req.method;
-            self.cursor_position = self.input_url.len();
+    // Key-value helpers
+    pub fn current_kv_items(&self) -> &Vec<KeyValue> {
+        match self.active_tab {
+            RequestTab::Params => &self.params,
+            RequestTab::Headers | RequestTab::Body => &self.headers,
         }
     }
 
-    // Request state management
+    fn current_kv_items_mut(&mut self) -> &mut Vec<KeyValue> {
+        match self.active_tab {
+            RequestTab::Params => &mut self.params,
+            RequestTab::Headers | RequestTab::Body => &mut self.headers,
+        }
+    }
+
+    pub fn current_kv_editor(&self) -> &KvEditor {
+        match self.active_tab {
+            RequestTab::Params => &self.params_editor,
+            RequestTab::Headers | RequestTab::Body => &self.headers_editor,
+        }
+    }
+
+    pub fn current_kv_editor_mut(&mut self) -> &mut KvEditor {
+        match self.active_tab {
+            RequestTab::Params => &mut self.params_editor,
+            RequestTab::Headers | RequestTab::Body => &mut self.headers_editor,
+        }
+    }
+
+    fn sync_kv_editor_from_items(&mut self) {
+        let selected = self.current_kv_editor().selected;
+        if let Some(item) = self.current_kv_items().get(selected).cloned() {
+            self.current_kv_editor_mut().sync_from_item(&item);
+        }
+    }
+
+    fn sync_kv_items_from_editor(&mut self) {
+        let selected = self.current_kv_editor().selected;
+        let (key, value) = {
+            let editor = self.current_kv_editor();
+            (
+                editor.key_input.value().to_string(),
+                editor.value_input.value().to_string(),
+            )
+        };
+        if let Some(item) = self.current_kv_items_mut().get_mut(selected) {
+            item.key = key;
+            item.value = value;
+        }
+    }
+
+    pub fn kv_add(&mut self) {
+        self.current_kv_items_mut().push(KeyValue::default());
+        let len = self.current_kv_items().len();
+        let editor = self.current_kv_editor_mut();
+        editor.selected = len.saturating_sub(1);
+        editor.field = KvField::Key;
+        editor.key_input.reset();
+        editor.value_input.reset();
+    }
+
+    pub fn kv_delete(&mut self) {
+        let selected = self.current_kv_editor().selected;
+        let items = self.current_kv_items_mut();
+        if items.is_empty() {
+            return;
+        }
+        items.remove(selected);
+        let new_len = items.len();
+        let editor = self.current_kv_editor_mut();
+        if editor.selected >= new_len && new_len > 0 {
+            editor.selected = new_len - 1;
+        }
+    }
+
+    pub fn kv_toggle_enabled(&mut self) {
+        let selected = self.current_kv_editor().selected;
+        if let Some(item) = self.current_kv_items_mut().get_mut(selected) {
+            item.enabled = !item.enabled;
+        }
+    }
+
+    pub fn kv_select_next(&mut self) {
+        if self.edit_focus == EditFocus::KeyValue {
+            self.sync_kv_items_from_editor();
+        }
+        let len = self.current_kv_items().len();
+        self.current_kv_editor_mut().select_next(len);
+        if self.edit_focus == EditFocus::KeyValue {
+            self.sync_kv_editor_from_items();
+        }
+    }
+
+    pub fn kv_select_prev(&mut self) {
+        if self.edit_focus == EditFocus::KeyValue {
+            self.sync_kv_items_from_editor();
+        }
+        let len = self.current_kv_items().len();
+        self.current_kv_editor_mut().select_prev(len);
+        if self.edit_focus == EditFocus::KeyValue {
+            self.sync_kv_editor_from_items();
+        }
+    }
+
+    pub fn kv_toggle_field(&mut self) {
+        self.current_kv_editor_mut().toggle_field();
+    }
+
+    // Request state
     pub fn set_loading(&mut self) {
         self.request_state = RequestState::Loading;
         self.response_scroll = 0;
@@ -295,36 +434,34 @@ impl App {
         matches!(self.request_state, RequestState::Loading)
     }
 
-    // Response scrolling
-    pub fn scroll_response_up(&mut self, lines: usize) {
+    // Scrolling
+    pub fn scroll_up(&mut self, lines: usize) {
         self.response_scroll = self.response_scroll.saturating_sub(lines);
     }
 
-    pub fn scroll_response_down(&mut self, lines: usize, max_lines: usize) {
-        if max_lines > 0 {
-            self.response_scroll = (self.response_scroll + lines).min(max_lines.saturating_sub(1));
+    pub fn scroll_down(&mut self, lines: usize, max: usize) {
+        if max > 0 {
+            self.response_scroll = (self.response_scroll + lines).min(max.saturating_sub(1));
         }
     }
 
-    pub fn scroll_response_top(&mut self) {
+    pub fn scroll_top(&mut self) {
         self.response_scroll = 0;
     }
 
-    pub fn scroll_response_bottom(&mut self, max_lines: usize) {
-        if max_lines > 0 {
-            self.response_scroll = max_lines.saturating_sub(1);
+    pub fn scroll_bottom(&mut self, max: usize) {
+        if max > 0 {
+            self.response_scroll = max.saturating_sub(1);
         }
     }
 
-    // Help scrolling
-    pub fn scroll_help_up(&mut self, lines: usize) {
+    pub fn help_scroll_up(&mut self, lines: usize) {
         self.help_scroll = self.help_scroll.saturating_sub(lines);
     }
 
-    pub fn scroll_help_down(&mut self, lines: usize, max_lines: usize) {
-        if max_lines > 0 {
-            // Absolute sorcery
-            self.help_scroll = (self.help_scroll + lines).min(max_lines.saturating_sub(1));
+    pub fn help_scroll_down(&mut self, lines: usize, max: usize) {
+        if max > 0 {
+            self.help_scroll = (self.help_scroll + lines).min(max.saturating_sub(1));
         }
     }
 }

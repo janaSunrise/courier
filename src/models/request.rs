@@ -1,4 +1,22 @@
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
+
+#[derive(Debug, Clone, Default)]
+pub struct KeyValue {
+    pub enabled: bool,
+    pub key: String,
+    pub value: String,
+}
+
+impl KeyValue {
+    #[allow(dead_code)]
+    pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            enabled: true,
+            key: key.into(),
+            value: value.into(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HttpMethod {
@@ -54,6 +72,9 @@ impl HttpMethod {
 pub struct Request {
     pub method: HttpMethod,
     pub url: String,
+    pub params: Vec<KeyValue>,
+    pub headers: Vec<KeyValue>,
+    pub body: String,
     pub created_at: SystemTime,
 }
 
@@ -62,13 +83,15 @@ impl Request {
         Self {
             method,
             url: url.into(),
+            params: vec![],
+            headers: vec![],
+            body: String::new(),
             created_at: SystemTime::now(),
         }
     }
 
-    /// Return human-readable relative time string (e.g., "2m", "1h", "3d")
     pub fn relative_time(&self) -> String {
-        let elapsed = self.created_at.elapsed().unwrap_or(Duration::ZERO);
+        let elapsed = self.created_at.elapsed().unwrap_or_default();
         let secs = elapsed.as_secs();
 
         if secs < 60 {
