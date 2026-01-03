@@ -42,10 +42,20 @@ pub struct App {
     pub requests: Vec<Request>,
     /// Currently selected request index in sidebar
     pub selected_request: usize,
+    /// Whether we're in URL input mode
+    pub input_mode: bool,
+    /// Current URL being edited
+    pub input_url: String,
+    /// Current HTTP method
+    pub input_method: HttpMethod,
+    /// Cursor position in URL input
+    pub cursor_position: usize,
 }
 
 impl Default for App {
     fn default() -> Self {
+        let default_url = "https://api.example.com/users".to_string();
+        let url_len = default_url.len();
         Self {
             focused_panel: Panel::default(),
             should_quit: false,
@@ -58,6 +68,10 @@ impl Default for App {
                 Request::new(HttpMethod::Get, "https://api.example.com/products"),
             ],
             selected_request: 0,
+            input_mode: false,
+            input_url: default_url,
+            input_method: HttpMethod::Get,
+            cursor_position: url_len,
         }
     }
 }
@@ -116,6 +130,70 @@ impl App {
             if self.selected_request >= self.requests.len() && !self.requests.is_empty() {
                 self.selected_request = self.requests.len() - 1;
             }
+        }
+    }
+
+    // Input mode
+    pub fn enter_input_mode(&mut self) {
+        self.input_mode = true;
+    }
+
+    pub fn exit_input_mode(&mut self) {
+        self.input_mode = false;
+    }
+
+    // URL input editing
+    pub fn input_char(&mut self, c: char) {
+        self.input_url.insert(self.cursor_position, c);
+        self.cursor_position += 1;
+    }
+
+    pub fn delete_char(&mut self) {
+        if self.cursor_position > 0 {
+            self.cursor_position -= 1;
+            self.input_url.remove(self.cursor_position);
+        }
+    }
+
+    pub fn delete_char_forward(&mut self) {
+        if self.cursor_position < self.input_url.len() {
+            self.input_url.remove(self.cursor_position);
+        }
+    }
+
+    pub fn move_cursor_left(&mut self) {
+        self.cursor_position = self.cursor_position.saturating_sub(1);
+    }
+
+    pub fn move_cursor_right(&mut self) {
+        if self.cursor_position < self.input_url.len() {
+            self.cursor_position += 1;
+        }
+    }
+
+    pub fn move_cursor_start(&mut self) {
+        self.cursor_position = 0;
+    }
+
+    pub fn move_cursor_end(&mut self) {
+        self.cursor_position = self.input_url.len();
+    }
+
+    // Method cycling
+    pub fn cycle_method_next(&mut self) {
+        self.input_method = self.input_method.next();
+    }
+
+    pub fn cycle_method_prev(&mut self) {
+        self.input_method = self.input_method.prev();
+    }
+
+    // Load selected request into editor
+    pub fn load_selected_request(&mut self) {
+        if let Some(req) = self.requests.get(self.selected_request) {
+            self.input_url = req.url.clone();
+            self.input_method = req.method;
+            self.cursor_position = self.input_url.len();
         }
     }
 }

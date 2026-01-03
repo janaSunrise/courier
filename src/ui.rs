@@ -143,8 +143,14 @@ fn render_request_editor(frame: &mut Frame, app: &App, area: Rect) {
         theme::BORDER
     };
 
+    let title = if app.input_mode {
+        " Request [EDIT] "
+    } else {
+        " Request "
+    };
+
     let block = Block::default()
-        .title(" Request ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(theme::BG));
@@ -152,27 +158,56 @@ fn render_request_editor(frame: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Show currently selected request
-    if let Some(req) = app.current_request() {
-        let method_color = method_color(req.method);
-        let url_bar = Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!(" {} ", req.method.as_str()),
-                Style::default().fg(theme::BG).bg(method_color),
-            ),
-            Span::styled(" ", Style::default()),
-            Span::styled(&req.url, Style::default().fg(theme::TEXT)),
-        ]))
-        .style(Style::default().bg(theme::BG));
+    // Show input URL bar
+    let method_color = method_color(app.input_method);
+    let method_text = format!(" {} ", app.input_method.as_str());
 
-        frame.render_widget(url_bar, inner);
+    // Build URL display with cursor.
+    // Cursor is shown when input mode is active.
+    let url_display = if app.input_mode {
+        let (before, after) = app.input_url.split_at(app.cursor_position.min(app.input_url.len()));
+        vec![
+            Span::styled(method_text, Style::default().fg(theme::BG).bg(method_color)),
+            Span::styled(" ", Style::default()),
+            Span::styled(before.to_string(), Style::default().fg(theme::TEXT)),
+            Span::styled("│", Style::default().fg(theme::ACCENT)), // cursor
+            Span::styled(after.to_string(), Style::default().fg(theme::TEXT)),
+        ]
     } else {
-        let empty = Paragraph::new(Span::styled(
-            "No request selected",
+        vec![
+            Span::styled(method_text, Style::default().fg(theme::BG).bg(method_color)),
+            Span::styled(" ", Style::default()),
+            Span::styled(&app.input_url, Style::default().fg(theme::TEXT)),
+        ]
+    };
+
+    let url_bar = Paragraph::new(Line::from(url_display)).style(Style::default().bg(theme::BG));
+    frame.render_widget(url_bar, inner);
+
+    if is_focused && !app.input_mode {
+        let hint_area = Rect {
+            x: inner.x,
+            y: inner.y + 1,
+            width: inner.width,
+            height: 1,
+        };
+        let hint = Paragraph::new(Span::styled(
+            "Press 'i' or Enter to edit",
             Style::default().fg(theme::TEXT_DIM),
-        ))
-        .style(Style::default().bg(theme::BG));
-        frame.render_widget(empty, inner);
+        ));
+        frame.render_widget(hint, hint_area);
+    } else if app.input_mode {
+        let hint_area = Rect {
+            x: inner.x,
+            y: inner.y + 1,
+            width: inner.width,
+            height: 1,
+        };
+        let hint = Paragraph::new(Span::styled(
+            "Tab: cycle method | Esc: exit edit mode",
+            Style::default().fg(theme::TEXT_DIM),
+        ));
+        frame.render_widget(hint, hint_area);
     }
 }
 
@@ -233,8 +268,8 @@ fn render_status_bar(frame: &mut Frame, area: Rect) {
 
 /// Render the help overlay with keybinds
 fn render_help_overlay(frame: &mut Frame, area: Rect) {
-    let help_width = 50;
-    let help_height = 16;
+    let help_width = 44;
+    let help_height = 20;
     let help_area = Rect {
         x: area.width.saturating_sub(help_width) / 2,
         y: area.height.saturating_sub(help_height) / 2,
@@ -244,58 +279,79 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
 
     frame.render_widget(Clear, help_area);
 
+    let section_style = Style::default()
+        .fg(theme::TEXT_DIM)
+        .add_modifier(Modifier::BOLD);
+    let key_style = Style::default().fg(theme::ACCENT);
+    let desc_style = Style::default().fg(theme::TEXT);
+
     let help_text = vec![
-        Line::from(Span::styled(
-            "Keyboard Shortcuts",
-            Style::default()
-                .fg(theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
+        Line::from(Span::styled("NAVIGATION", section_style)),
         Line::from(vec![
-            Span::styled("Tab / Shift+Tab  ", Style::default().fg(theme::ACCENT)),
-            Span::styled("Cycle panels", Style::default().fg(theme::TEXT)),
+            Span::styled("  Tab           ", key_style),
+            Span::styled("Next panel", desc_style),
         ]),
         Line::from(vec![
-            Span::styled("h / l            ", Style::default().fg(theme::ACCENT)),
-            Span::styled("Previous / Next panel", Style::default().fg(theme::TEXT)),
+            Span::styled("  Shift+Tab     ", key_style),
+            Span::styled("Previous panel", desc_style),
         ]),
         Line::from(vec![
-            Span::styled("j / k            ", Style::default().fg(theme::ACCENT)),
-            Span::styled("Navigate requests", Style::default().fg(theme::TEXT)),
+            Span::styled("  h l           ", key_style),
+            Span::styled("Left / Right panel", desc_style),
         ]),
         Line::from(vec![
-            Span::styled("n                ", Style::default().fg(theme::ACCENT)),
-            Span::styled("New request", Style::default().fg(theme::TEXT)),
-        ]),
-        Line::from(vec![
-            Span::styled("d                ", Style::default().fg(theme::ACCENT)),
-            Span::styled("Delete request", Style::default().fg(theme::TEXT)),
-        ]),
-        Line::from(vec![
-            Span::styled("?                ", Style::default().fg(theme::ACCENT)),
-            Span::styled("Toggle this help", Style::default().fg(theme::TEXT)),
-        ]),
-        Line::from(vec![
-            Span::styled("q                ", Style::default().fg(theme::ACCENT)),
-            Span::styled("Quit", Style::default().fg(theme::TEXT)),
+            Span::styled("  j k           ", key_style),
+            Span::styled("Up / Down in list", desc_style),
         ]),
         Line::from(""),
-        Line::from(Span::styled(
-            "Press any key to close",
-            Style::default().fg(theme::TEXT_DIM),
-        )),
+        Line::from(Span::styled("REQUESTS", section_style)),
+        Line::from(vec![
+            Span::styled("  Enter         ", key_style),
+            Span::styled("Load / Edit request", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  i             ", key_style),
+            Span::styled("Edit URL", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  n             ", key_style),
+            Span::styled("New request", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  d             ", key_style),
+            Span::styled("Delete request", desc_style),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("EDIT MODE", section_style)),
+        Line::from(vec![
+            Span::styled("  Tab           ", key_style),
+            Span::styled("Cycle HTTP method", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Esc           ", key_style),
+            Span::styled("Exit edit mode", desc_style),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("GENERAL", section_style)),
+        Line::from(vec![
+            Span::styled("  ?             ", key_style),
+            Span::styled("Toggle help", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  q             ", key_style),
+            Span::styled("Quit", desc_style),
+        ]),
     ];
 
     let help = Paragraph::new(help_text)
         .block(
             Block::default()
-                .title(" Help ")
+                .title(" Courier Help ")
+                .title_style(Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme::ACCENT))
+                .border_style(Style::default().fg(theme::BORDER))
                 .style(Style::default().bg(theme::BG_HIGHLIGHT)),
-        )
-        .centered();
+        );
 
     frame.render_widget(help, help_area);
 }

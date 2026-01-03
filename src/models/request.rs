@@ -24,6 +24,30 @@ impl HttpMethod {
             HttpMethod::Options => "OPT",
         }
     }
+
+    pub fn next(self) -> Self {
+        match self {
+            HttpMethod::Get => HttpMethod::Post,
+            HttpMethod::Post => HttpMethod::Put,
+            HttpMethod::Put => HttpMethod::Patch,
+            HttpMethod::Patch => HttpMethod::Delete,
+            HttpMethod::Delete => HttpMethod::Head,
+            HttpMethod::Head => HttpMethod::Options,
+            HttpMethod::Options => HttpMethod::Get,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            HttpMethod::Get => HttpMethod::Options,
+            HttpMethod::Post => HttpMethod::Get,
+            HttpMethod::Put => HttpMethod::Post,
+            HttpMethod::Patch => HttpMethod::Put,
+            HttpMethod::Delete => HttpMethod::Patch,
+            HttpMethod::Head => HttpMethod::Delete,
+            HttpMethod::Options => HttpMethod::Head,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

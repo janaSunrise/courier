@@ -33,27 +33,53 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
                 continue;
             }
 
+            // Input mode handling
+            if app.input_mode {
+                match key.code {
+                    KeyCode::Esc => app.exit_input_mode(),
+                    KeyCode::Char(c) => app.input_char(c),
+                    KeyCode::Backspace => app.delete_char(),
+                    KeyCode::Delete => app.delete_char_forward(),
+                    KeyCode::Left => app.move_cursor_left(),
+                    KeyCode::Right => app.move_cursor_right(),
+                    KeyCode::Home => app.move_cursor_start(),
+                    KeyCode::End => app.move_cursor_end(),
+                    // Cycle method with Ctrl + m or Tab
+                    KeyCode::Tab => app.cycle_method_next(),
+                    KeyCode::BackTab => app.cycle_method_prev(),
+                    _ => {}
+                }
+                continue;
+            }
+
+            // Normal mode handling
             match key.code {
-                // Quit (q / ctrl + c)
+                // Quit
                 KeyCode::Char('q') => app.quit(),
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
+                KeyCode::Esc => app.quit(),
 
                 // Help
                 KeyCode::Char('?') => app.toggle_help(),
 
-                // Panel navigation
-                KeyCode::Tab => {
-                    if key.modifiers.contains(KeyModifiers::SHIFT) {
-                        app.focus_prev();
-                    } else {
-                        app.focus_next();
+                // Enter input mode
+                KeyCode::Char('i') | KeyCode::Enter => {
+                    if app.focused_panel == Panel::RequestEditor {
+                        app.enter_input_mode();
+                    } else if app.focused_panel == Panel::Sidebar {
+                        // Load selected request and switch to editor
+                        app.load_selected_request();
+                        app.focused_panel = Panel::RequestEditor;
                     }
                 }
-                KeyCode::BackTab => app.focus_prev(),  // Shift + Tab
+
+                // Panel navigation
+                KeyCode::Tab => app.focus_next(),
+                KeyCode::BackTab => app.focus_prev(),
                 KeyCode::Char('h') | KeyCode::Left => app.focus_prev(),
                 KeyCode::Char('l') | KeyCode::Right => app.focus_next(),
 
-                // Sidebar navigation (when sidebar is focused)
+                // Sidebar navigation
                 KeyCode::Char('j') | KeyCode::Down => {
                     if app.focused_panel == Panel::Sidebar {
                         app.select_next_request();
@@ -65,6 +91,7 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
                     }
                 }
 
+                // Request management
                 KeyCode::Char('n') => {
                     if app.focused_panel == Panel::Sidebar {
                         app.add_request(models::Request::default());
