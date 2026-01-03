@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     buffer::Buffer,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph, Tabs, Widget},
@@ -165,19 +165,23 @@ fn render_request_editor(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focused_panel == Panel::RequestEditor;
     let border = if focused { theme::BORDER_FOCUSED } else { theme::BORDER };
 
-    let title = match app.edit_focus {
-        EditFocus::Url => " Request [URL] ",
-        EditFocus::KeyValue => match app.active_tab {
-            RequestTab::Params => " Request [PARAMS] ",
-            RequestTab::Headers => " Request [HEADERS] ",
-            RequestTab::Body => " Request ",
+    let right_title: Line = match app.edit_focus {
+        EditFocus::Url => Line::from(Span::styled(" URL ", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))),
+        EditFocus::KeyValue => {
+            let label = match app.active_tab {
+                RequestTab::Params => "PARAMS",
+                RequestTab::Headers => "HEADERS",
+                RequestTab::Body => "BODY",
+            };
+            Line::from(Span::styled(format!(" {} ", label), Style::default().fg(theme::METHOD_POST).add_modifier(Modifier::BOLD)))
         },
-        EditFocus::Body => " Request [BODY] ",
-        EditFocus::None => " Request ",
+        EditFocus::Body => Line::from(Span::styled(" BODY ", Style::default().fg(theme::METHOD_PUT).add_modifier(Modifier::BOLD))),
+        EditFocus::None => Line::from(""),
     };
 
     let block = Block::default()
-        .title(title)
+        .title(" Request ")
+        .title(right_title.alignment(Alignment::Right))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border))
         .style(Style::default().bg(theme::BG));
@@ -391,19 +395,25 @@ fn render_response(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focused_panel == Panel::Response;
     let border = if focused { theme::BORDER_FOCUSED } else { theme::BORDER };
 
-    let (title, title_style) = match &app.request_state {
-        RequestState::Idle => (" Response ".to_string(), Style::default().fg(theme::TEXT)),
-        RequestState::Loading => (" Response [Loading...] ".to_string(), Style::default().fg(theme::STATUS_LOADING)),
-        RequestState::Success(resp) => (
-            format!(" {} {} | {} | {} ", resp.status, resp.status_text, resp.elapsed_display(), resp.size_display()),
-            Style::default().fg(status_color(resp.status)),
-        ),
-        RequestState::Error(_) => (" Response [Error] ".to_string(), Style::default().fg(theme::STATUS_SERVER_ERROR)),
+    let right_title: Line = match &app.request_state {
+        RequestState::Idle => Line::from(""),
+        RequestState::Loading => Line::from(Span::styled(" Loading... ", Style::default().fg(theme::STATUS_LOADING))),
+        RequestState::Success(resp) => {
+            let status_col = status_color(resp.status);
+            Line::from(vec![
+                Span::styled(format!(" {} {} ", resp.status, resp.status_text), Style::default().fg(status_col).add_modifier(Modifier::BOLD)),
+                Span::styled("│", Style::default().fg(theme::BORDER)),
+                Span::styled(format!(" {} ", resp.elapsed_display()), Style::default().fg(theme::TEXT_DIM)),
+                Span::styled("│", Style::default().fg(theme::BORDER)),
+                Span::styled(format!(" {} ", resp.size_display()), Style::default().fg(theme::TEXT_DIM)),
+            ])
+        },
+        RequestState::Error(_) => Line::from(Span::styled(" Error ", Style::default().fg(theme::STATUS_SERVER_ERROR).add_modifier(Modifier::BOLD))),
     };
 
     let block = Block::default()
-        .title(title)
-        .title_style(title_style)
+        .title(" Response ")
+        .title(right_title.alignment(Alignment::Right))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border))
         .style(Style::default().bg(theme::BG));
