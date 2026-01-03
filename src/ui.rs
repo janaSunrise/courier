@@ -138,9 +138,26 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let content = Paragraph::new(Text::from(lines)).style(Style::default().bg(theme::BG));
-
-    frame.render_widget(content, inner);
+    if lines.is_empty() {
+        let hint = Paragraph::new(Text::from(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "No requests",
+                Style::default().fg(theme::TEXT_DIM),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Press 'n' to create",
+                Style::default().fg(theme::TEXT_DIM),
+            )),
+        ]))
+        .centered()
+        .style(Style::default().bg(theme::BG));
+        frame.render_widget(hint, inner);
+    } else {
+        let content = Paragraph::new(Text::from(lines)).style(Style::default().bg(theme::BG));
+        frame.render_widget(content, inner);
+    }
 }
 
 fn method_color(method: HttpMethod) -> ratatui::style::Color {

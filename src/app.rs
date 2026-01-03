@@ -60,20 +60,16 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        let default_url = "https://httpbin.org/get".to_string();
-        let url_len = default_url.len();
         Self {
             focused_panel: Panel::default(),
             should_quit: false,
             show_help: false,
-            requests: vec![
-                Request::new(HttpMethod::Get, "https://httpbin.org/get"),
-            ],
+            requests: vec![],
             selected_request: 0,
             input_mode: false,
-            input_url: default_url,
+            input_url: String::new(),
             input_method: HttpMethod::Get,
-            cursor_position: url_len,
+            cursor_position: 0,
             request_state: RequestState::default(),
             response_scroll: 0,
             help_scroll: 0,
