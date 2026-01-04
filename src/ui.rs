@@ -467,55 +467,57 @@ fn render_response(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let key = Style::default().fg(theme::TEXT_DIM);
-    let sep = Style::default().fg(theme::BORDER);
+    let key = Style::default().fg(theme::TEXT);
+    let desc = Style::default().fg(theme::TEXT_DIM);
+    let dim = Style::default().fg(theme::BORDER);
 
     let mode = match app.edit_focus {
         EditFocus::None => Span::styled(" NORMAL ", Style::default().fg(theme::BG).bg(theme::TEXT_DIM)),
-        EditFocus::Url => Span::styled(" URL ", Style::default().fg(theme::BG).bg(theme::ACCENT)),
-        EditFocus::KeyValue => Span::styled(" EDIT ", Style::default().fg(theme::BG).bg(theme::METHOD_POST)),
-        EditFocus::Body => Span::styled(" BODY ", Style::default().fg(theme::BG).bg(theme::METHOD_PUT)),
+        EditFocus::Url => Span::styled(" INSERT ", Style::default().fg(theme::BG).bg(theme::ACCENT)),
+        EditFocus::KeyValue => Span::styled(" INSERT ", Style::default().fg(theme::BG).bg(theme::METHOD_POST)),
+        EditFocus::Body => Span::styled(" INSERT ", Style::default().fg(theme::BG).bg(theme::METHOD_PUT)),
     };
 
     let hints: Vec<Span> = if app.edit_focus == EditFocus::Body {
         vec![
-            Span::styled("Esc", key), Span::styled(" done  ", sep),
-            Span::styled("C-f", key), Span::styled(" format  ", sep),
-            Span::styled("C-s", key), Span::styled(" send", sep),
+            Span::styled("esc", key), Span::styled(":done ", desc),
+            Span::styled("C-F", key), Span::styled(":fmt ", desc),
+            Span::styled("C-S", key), Span::styled(":send", desc),
         ]
     } else if app.is_editing() {
         vec![
-            Span::styled("Esc", key), Span::styled(" done  ", sep),
-            Span::styled("C-s", key), Span::styled(" send", sep),
+            Span::styled("Esc", key), Span::styled(":done ", desc),
+            Span::styled("C-S", key), Span::styled(":send", desc),
         ]
     } else {
         match app.focused_panel {
             Panel::Sidebar => vec![
-                Span::styled("j/k", key), Span::styled(" nav  ", sep),
-                Span::styled("Enter", key), Span::styled(" load  ", sep),
-                Span::styled("n", key), Span::styled(" new  ", sep),
-                Span::styled("d", key), Span::styled(" del", sep),
+                Span::styled("j/k", key), Span::styled(":nav ", desc),
+                Span::styled("enter", key), Span::styled(":select ", desc),
+                Span::styled("n", key), Span::styled(":new ", desc),
+                Span::styled("d", key), Span::styled(":del", desc),
             ],
             Panel::RequestEditor => vec![
-                Span::styled("i", key), Span::styled(" url  ", sep),
-                Span::styled("1-3", key), Span::styled(" tab  ", sep),
-                Span::styled("a", key), Span::styled(" add  ", sep),
-                Span::styled("C-s", key), Span::styled(" send", sep),
+                Span::styled("i", key), Span::styled(":url ", desc),
+                Span::styled("1-3", key), Span::styled(":tab ", desc),
+                Span::styled("a", key), Span::styled(":add ", desc),
+                Span::styled("C-S", key), Span::styled(":send", desc),
             ],
             Panel::Response => vec![
-                Span::styled("j/k", key), Span::styled(" scroll  ", sep),
-                Span::styled("g/G", key), Span::styled(" top/end", sep),
+                Span::styled("j/k", key), Span::styled(":scroll ", desc),
+                Span::styled("g/G", key), Span::styled(":jump", desc),
             ],
         }
     };
 
     let right = vec![
-        Span::styled("?", key), Span::styled(" help  ", sep),
-        Span::styled("q", key), Span::styled(" quit  ", sep),
+        Span::styled("?", key), Span::styled(":help ", desc),
+        Span::styled("q", key), Span::styled(":quit ", desc),
+        Span::styled("│ ", dim),
         Span::styled("courier", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
     ];
 
-    let mut left: Vec<Span> = vec![mode, Span::styled("  ", sep)];
+    let mut left: Vec<Span> = vec![mode, Span::styled(" ", desc)];
     left.extend(hints);
 
     let left_len: usize = left.iter().map(|s| s.width()).sum();
@@ -523,7 +525,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let padding = area.width.saturating_sub(left_len as u16 + right_len as u16) as usize;
 
     let mut all = left;
-    all.push(Span::styled(" ".repeat(padding), sep));
+    all.push(Span::styled(" ".repeat(padding), desc));
     all.extend(right);
 
     frame.render_widget(Paragraph::new(Line::from(all)).style(Style::default().bg(theme::BG)), area);
