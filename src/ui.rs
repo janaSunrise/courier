@@ -397,18 +397,15 @@ fn render_response(frame: &mut Frame, app: &App, area: Rect) {
 
     let right_title: Line = match &app.request_state {
         RequestState::Idle => Line::from(""),
-        RequestState::Loading => Line::from(Span::styled(" Loading... ", Style::default().fg(theme::STATUS_LOADING))),
+        RequestState::Loading => Line::from(Span::styled(" ● Loading ", Style::default().fg(theme::STATUS_LOADING))),
         RequestState::Success(resp) => {
             let status_col = status_color(resp.status);
             Line::from(vec![
-                Span::styled(format!(" {} {} ", resp.status, resp.status_text), Style::default().fg(status_col).add_modifier(Modifier::BOLD)),
-                Span::styled("│", Style::default().fg(theme::BORDER)),
-                Span::styled(format!(" {} ", resp.elapsed_display()), Style::default().fg(theme::TEXT_DIM)),
-                Span::styled("│", Style::default().fg(theme::BORDER)),
-                Span::styled(format!(" {} ", resp.size_display()), Style::default().fg(theme::TEXT_DIM)),
+                Span::styled(format!(" {} {} ", resp.status, resp.status_text), Style::default().fg(theme::BG).bg(status_col).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("  {}  {} ", resp.elapsed_display(), resp.size_display()), Style::default().fg(theme::TEXT_DIM)),
             ])
         },
-        RequestState::Error(_) => Line::from(Span::styled(" Error ", Style::default().fg(theme::STATUS_SERVER_ERROR).add_modifier(Modifier::BOLD))),
+        RequestState::Error(_) => Line::from(Span::styled(" ✕ Error ", Style::default().fg(theme::BG).bg(theme::STATUS_SERVER_ERROR).add_modifier(Modifier::BOLD))),
     };
 
     let block = Block::default()
