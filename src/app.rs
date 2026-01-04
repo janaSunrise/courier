@@ -118,6 +118,7 @@ pub struct App<'a> {
     // Sidebar
     pub requests: Vec<Request>,
     pub sidebar_state: ListState,
+    pub editing_request_idx: Option<usize>,
 
     // Request editor
     pub active_tab: RequestTab,
@@ -154,6 +155,7 @@ impl<'a> App<'a> {
             help_scroll: 0,
             requests: vec![],
             sidebar_state: ListState::default(),
+            editing_request_idx: None,
             active_tab: RequestTab::default(),
             edit_focus: EditFocus::None,
             url_input: Input::default(),
@@ -245,12 +247,45 @@ impl<'a> App<'a> {
     pub fn add_request(&mut self, request: Request) {
         self.requests.insert(0, request);
         self.sidebar_state.select(Some(0));
+        self.editing_request_idx = Some(0);
+    }
+
+    pub fn new_request(&mut self) {
+        self.requests.insert(0, Request::default());
+        self.sidebar_state.select(Some(0));
+
+        // Clear editor state for new request
+        self.editing_request_idx = Some(0);
+        self.url_input = Input::default();
+        self.method = HttpMethod::Get;
+        self.params = vec![];
+        self.headers = vec![];
+        self.set_body("");
+        self.params_editor.reset();
+        self.headers_editor.reset();
+        self.request_state = RequestState::default();
+    }
+
+    pub fn update_request(&mut self, idx: usize, request: Request) {
+        if let Some(existing) = self.requests.get_mut(idx) {
+            *existing = request;
+        }
     }
 
     pub fn delete_selected_request(&mut self) {
         if !self.requests.is_empty() {
             let selected = self.selected_request();
             self.requests.remove(selected);
+
+            // Adjust editing index after deletion
+            if let Some(idx) = self.editing_request_idx {
+                if idx == selected {
+                    self.editing_request_idx = None;
+                } else if idx > selected {
+                    self.editing_request_idx = Some(idx - 1);
+                }
+            }
+
             if selected >= self.requests.len() && !self.requests.is_empty() {
                 self.sidebar_state.select(Some(self.requests.len() - 1));
             }
@@ -258,8 +293,9 @@ impl<'a> App<'a> {
     }
 
     pub fn load_selected_request(&mut self) {
+        let idx = self.selected_request();
         let (url, method, params, headers, body) = {
-            if let Some(req) = self.requests.get(self.selected_request()) {
+            if let Some(req) = self.requests.get(idx) {
                 (
                     req.url.clone(),
                     req.method,
@@ -271,6 +307,7 @@ impl<'a> App<'a> {
                 return;
             }
         };
+        self.editing_request_idx = Some(idx);
         self.url_input = Input::new(url);
         self.method = method;
         self.params = params;

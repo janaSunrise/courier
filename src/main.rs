@@ -131,7 +131,7 @@ fn handle_normal_mode(app: &mut App, code: KeyCode, ctrl: bool) {
 
         // Sidebar actions
         KeyCode::Char('n') if app.focused_panel == Panel::Sidebar => {
-            app.add_request(models::Request::default());
+            app.new_request();
         }
         KeyCode::Char('d') if app.focused_panel == Panel::Sidebar => {
             app.delete_selected_request();
@@ -237,13 +237,18 @@ fn send_request(rt: &tokio::runtime::Runtime, app: &mut App, tx: mpsc::Unbounded
         return;
     }
 
-    // Save to history
+    // Save or update request
     let body = app.body();
     let mut request = models::Request::new(app.method, url.clone());
     request.params = app.params.clone();
     request.headers = app.headers.clone();
     request.body = body.clone();
-    app.add_request(request);
+
+    if let Some(idx) = app.editing_request_idx {
+        app.update_request(idx, request);
+    } else {
+        app.add_request(request);
+    }
 
     let data = RequestData {
         method: app.method,
