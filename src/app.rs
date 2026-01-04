@@ -202,11 +202,11 @@ impl<'a> App<'a> {
 
     pub fn format_json(&mut self) {
         let text = self.body();
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Ok(formatted) = serde_json::to_string_pretty(&value) {
-                self.set_body(&formatted);
-                self.json_error = None;
-            }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text)
+            && let Ok(formatted) = serde_json::to_string_pretty(&value)
+        {
+            self.set_body(&formatted);
+            self.json_error = None;
         }
     }
 
@@ -294,25 +294,14 @@ impl<'a> App<'a> {
 
     pub fn load_selected_request(&mut self) {
         let idx = self.selected_request();
-        let (url, method, params, headers, body) = {
-            if let Some(req) = self.requests.get(idx) {
-                (
-                    req.url.clone(),
-                    req.method,
-                    req.params.clone(),
-                    req.headers.clone(),
-                    req.body.clone(),
-                )
-            } else {
-                return;
-            }
-        };
+        let Some(req) = self.requests.get(idx).cloned() else { return };
+
         self.editing_request_idx = Some(idx);
-        self.url_input = Input::new(url);
-        self.method = method;
-        self.params = params;
-        self.headers = headers;
-        self.set_body(&body);
+        self.url_input = Input::new(req.url);
+        self.method = req.method;
+        self.params = req.params;
+        self.headers = req.headers;
+        self.set_body(&req.body);
         self.params_editor.reset();
         self.headers_editor.reset();
     }
@@ -425,26 +414,28 @@ impl<'a> App<'a> {
         }
     }
 
-    pub fn kv_select_next(&mut self) {
+    fn kv_navigate(&mut self, forward: bool) {
         if self.edit_focus == EditFocus::KeyValue {
             self.sync_kv_items_from_editor();
         }
         let len = self.current_kv_items().len();
-        self.current_kv_editor_mut().select_next(len);
+        let editor = self.current_kv_editor_mut();
+        if forward {
+            editor.select_next(len);
+        } else {
+            editor.select_prev(len);
+        }
         if self.edit_focus == EditFocus::KeyValue {
             self.sync_kv_editor_from_items();
         }
     }
 
+    pub fn kv_select_next(&mut self) {
+        self.kv_navigate(true);
+    }
+
     pub fn kv_select_prev(&mut self) {
-        if self.edit_focus == EditFocus::KeyValue {
-            self.sync_kv_items_from_editor();
-        }
-        let len = self.current_kv_items().len();
-        self.current_kv_editor_mut().select_prev(len);
-        if self.edit_focus == EditFocus::KeyValue {
-            self.sync_kv_editor_from_items();
-        }
+        self.kv_navigate(false);
     }
 
     pub fn kv_toggle_field(&mut self) {

@@ -1,19 +1,18 @@
 use std::time::SystemTime;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct KeyValue {
     pub enabled: bool,
     pub key: String,
     pub value: String,
 }
 
-impl KeyValue {
-    #[allow(dead_code)]
-    pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
+impl Default for KeyValue {
+    fn default() -> Self {
         Self {
             enabled: true,
-            key: key.into(),
-            value: value.into(),
+            key: String::new(),
+            value: String::new(),
         }
     }
 }

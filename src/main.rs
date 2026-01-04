@@ -193,12 +193,9 @@ fn handle_url_edit(app: &mut App, key: KeyEvent, _ctrl: bool) {
 fn handle_kv_edit(app: &mut App, key: KeyEvent, ctrl: bool) {
     match key.code {
         KeyCode::Esc => app.stop_editing(),
-        KeyCode::Tab => app.kv_toggle_field(),
-        KeyCode::BackTab => app.kv_toggle_field(),
-        KeyCode::Up if ctrl => app.kv_select_prev(),
-        KeyCode::Down if ctrl => app.kv_select_next(),
-        KeyCode::Char('k') if ctrl => app.kv_select_prev(),
-        KeyCode::Char('j') if ctrl => app.kv_select_next(),
+        KeyCode::Tab | KeyCode::BackTab => app.kv_toggle_field(),
+        KeyCode::Up | KeyCode::Char('k') if ctrl => app.kv_select_prev(),
+        KeyCode::Down | KeyCode::Char('j') if ctrl => app.kv_select_next(),
         KeyCode::Char(' ') if ctrl => app.kv_toggle_enabled(),
         KeyCode::Char('n') if ctrl => app.kv_add(),
         KeyCode::Char('d') if ctrl => {
@@ -208,7 +205,6 @@ fn handle_kv_edit(app: &mut App, key: KeyEvent, ctrl: bool) {
             }
         }
         _ => {
-            // Let tui-input handle the rest
             app.current_kv_editor_mut()
                 .current_input_mut()
                 .handle_event(&Event::Key(key));
@@ -237,17 +233,19 @@ fn send_request(rt: &tokio::runtime::Runtime, app: &mut App, tx: mpsc::Unbounded
         return;
     }
 
-    // Save or update request
-    let body = app.body();
-    let mut request = models::Request::new(app.method, url.clone());
-    request.params = app.params.clone();
-    request.headers = app.headers.clone();
-    request.body = body.clone();
+    // Save or update request in history
+    let request = models::Request {
+        method: app.method,
+        url: url.clone(),
+        params: app.params.clone(),
+        headers: app.headers.clone(),
+        body: app.body(),
+        created_at: std::time::SystemTime::now(),
+    };
 
-    if let Some(idx) = app.editing_request_idx {
-        app.update_request(idx, request);
-    } else {
-        app.add_request(request);
+    match app.editing_request_idx {
+        Some(idx) => app.update_request(idx, request),
+        None => app.add_request(request),
     }
 
     let data = RequestData {
@@ -255,25 +253,25 @@ fn send_request(rt: &tokio::runtime::Runtime, app: &mut App, tx: mpsc::Unbounded
         url,
         params: app.params.clone(),
         headers: app.headers.clone(),
-        body,
+        body: app.body(),
     };
 
     app.set_loading();
-
     rt.spawn(async move {
         http::send_request(data, tx).await;
     });
 }
 
 fn response_lines(app: &App) -> usize {
-    if let models::RequestState::Success(ref resp) = app.request_state {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp.body) {
-            if let Ok(pretty) = serde_json::to_string_pretty(&json) {
-                return pretty.lines().count();
-            }
-        }
-        resp.body.lines().count()
-    } else {
-        0
+    let models::RequestState::Success(ref resp) = app.request_state else {
+        return 0;
+    };
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp.body)
+        && let Ok(pretty) = serde_json::to_string_pretty(&json)
+    {
+        return pretty.lines().count();
     }
+
+    resp.body.lines().count()
 }

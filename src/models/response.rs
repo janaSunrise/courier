@@ -36,20 +36,11 @@ impl Response {
 
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum RequestState {
-    /// No request has been made yet
+    #[default]
     Idle,
-    /// Request is currently in progress
     Loading,
-    /// Request completed successfully
     Success(Response),
-    /// Request failed with an error
     Error(String),
-}
-
-impl Default for RequestState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
