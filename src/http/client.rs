@@ -24,7 +24,7 @@ pub struct RequestData {
 fn build_client() -> Result<Client, reqwest::Error> {
     Client::builder()
         .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .user_agent("Courier/1.0.0")
+        .user_agent("Courier/0.1.0")
         .build()
 }
 

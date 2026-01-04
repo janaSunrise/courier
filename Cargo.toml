@@ -1,7 +1,10 @@
 [package]
 name = "courier"
+description = "A fast, lightweight TUI HTTP client for testing APIs faster than ever, all from the terminal."
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
