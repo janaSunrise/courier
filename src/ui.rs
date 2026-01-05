@@ -10,7 +10,7 @@ use tui_widget_list::{ListBuilder, ListView};
 
 use crate::app::{App, EditFocus, KvField, KvEditor, Panel, RequestTab};
 use crate::models::{HttpMethod, KeyValue, Request, RequestState};
-use crate::utils::format_json_if_valid;
+use crate::utils::{format_json_if_valid, textarea_value};
 
 pub mod theme {
     use ratatui::style::Color;
@@ -203,40 +203,27 @@ fn render_request_editor(frame: &mut Frame, app: &App, area: Rect) {
 fn render_url_bar(frame: &mut Frame, app: &App, area: Rect) {
     let method_color = method_color(app.method);
     let method_text = format!(" {} ", app.method.as_str());
-    let placeholder = "https://api.example.com";
+    let method_width = method_text.len() as u16 + 1; // Single space after method
 
-    let url = app.url();
-    let cursor = app.url_input.visual_cursor();
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(method_width), Constraint::Min(0)])
+        .split(area);
 
-    let url_spans = if app.edit_focus == EditFocus::Url {
-        let (before, after) = url.split_at(cursor.min(url.len()));
-        if url.is_empty() {
-            vec![
-                Span::styled(method_text, Style::default().fg(theme::BG).bg(method_color)),
-                Span::styled(" ", Style::default()),
-                Span::styled("│", Style::default().fg(theme::ACCENT)),
-                Span::styled(placeholder, Style::default().fg(theme::TEXT_DIM)),
-            ]
-        } else {
-            vec![
-                Span::styled(method_text, Style::default().fg(theme::BG).bg(method_color)),
-                Span::styled(" ", Style::default()),
-                Span::styled(before, Style::default().fg(theme::TEXT)),
-                Span::styled("│", Style::default().fg(theme::ACCENT)),
-                Span::styled(after, Style::default().fg(theme::TEXT)),
-            ]
-        }
+    let method_span = Span::styled(method_text, Style::default().fg(theme::BG).bg(method_color));
+    frame.render_widget(Paragraph::new(Line::from(method_span)).style(Style::default().bg(theme::BG)), chunks[0]);
+
+    if app.edit_focus == EditFocus::Url {
+        frame.render_widget(&app.url_input, chunks[1]);
     } else {
+        let placeholder = "https://api.example.com";
+        let url = app.url();
         let url_text = if url.is_empty() { placeholder } else { url };
         let url_color = if url.is_empty() { theme::TEXT_DIM } else { theme::TEXT };
-        vec![
-            Span::styled(method_text, Style::default().fg(theme::BG).bg(method_color)),
-            Span::styled(" ", Style::default()),
-            Span::styled(url_text, Style::default().fg(url_color)),
-        ]
-    };
-
-    frame.render_widget(Paragraph::new(Line::from(url_spans)).style(Style::default().bg(theme::BG)), area);
+        let url_para = Paragraph::new(Span::styled(url_text, Style::default().fg(url_color)))
+            .style(Style::default().bg(theme::BG));
+        frame.render_widget(url_para, chunks[1]);
+    }
 }
 
 fn render_tabs(frame: &mut Frame, app: &App, area: Rect) {
@@ -279,71 +266,89 @@ fn render_kv_list(frame: &mut Frame, app: &App, area: Rect, items: &[KeyValue], 
 
     let is_editing = app.edit_focus == EditFocus::KeyValue;
 
-    let lines: Vec<Line> = items.iter().enumerate().map(|(i, item)| {
-        let selected = i == editor.selected;
-        let bg = if selected { theme::BG_HIGHLIGHT } else { theme::BG };
-        let prefix = if selected { "›" } else { " " };
-        let checkbox = if item.enabled { "[✓]" } else { "[ ]" };
-        let checkbox_color = if item.enabled { theme::METHOD_GET } else { theme::TEXT_DIM };
-
-        let (key_spans, val_spans) = if selected && is_editing {
-            // When editing, show current input values with cursor
-            let key_val = editor.key_input.value();
-            let val_val = editor.value_input.value();
-
-            match editor.field {
-                KvField::Key => {
-                    let cursor = editor.key_input.visual_cursor();
-                    let (before, after) = key_val.split_at(cursor.min(key_val.len()));
-                    (
-                        vec![
-                            Span::styled(before, Style::default().fg(theme::ACCENT).bg(bg)),
-                            Span::styled("│", Style::default().fg(theme::ACCENT).bg(bg)),
-                            Span::styled(after, Style::default().fg(theme::ACCENT).bg(bg)),
-                        ],
-                        vec![Span::styled(val_val, Style::default().fg(theme::TEXT).bg(bg))],
-                    )
-                }
-                KvField::Value => {
-                    let cursor = editor.value_input.visual_cursor();
-                    let (before, after) = val_val.split_at(cursor.min(val_val.len()));
-                    (
-                        vec![Span::styled(key_val, Style::default().fg(theme::TEXT).bg(bg))],
-                        vec![
-                            Span::styled(before, Style::default().fg(theme::ACCENT).bg(bg)),
-                            Span::styled("│", Style::default().fg(theme::ACCENT).bg(bg)),
-                            Span::styled(after, Style::default().fg(theme::ACCENT).bg(bg)),
-                        ],
-                    )
-                }
-            }
-        } else {
-            let key_color = if selected { theme::ACCENT } else { theme::TEXT };
-            (
-                vec![Span::styled(&item.key, Style::default().fg(key_color).bg(bg))],
-                vec![Span::styled(&item.value, Style::default().fg(theme::TEXT).bg(bg))],
-            )
-        };
-
-        let mut spans = vec![
-            Span::styled(prefix, Style::default().fg(theme::ACCENT).bg(bg)),
-            Span::styled(checkbox, Style::default().fg(checkbox_color).bg(bg)),
-            Span::styled(" ", Style::default().bg(bg)),
-        ];
-        spans.extend(key_spans);
-        spans.push(Span::styled(": ", Style::default().fg(theme::TEXT_DIM).bg(bg)));
-        spans.extend(val_spans);
-
-        let len: usize = spans.iter().map(|s| s.width()).sum();
-        let padding = area.width.saturating_sub(len as u16) as usize;
-        if padding > 0 {
-            spans.push(Span::styled(" ".repeat(padding), Style::default().bg(bg)));
+    for (i, item) in items.iter().enumerate() {
+        if i >= area.height as usize {
+            break;
         }
 
-        Line::from(spans)
-    }).collect();
+        let row_area = Rect {
+            x: area.x,
+            y: area.y + i as u16,
+            width: area.width,
+            height: 1,
+        };
 
-    frame.render_widget(Paragraph::new(Text::from(lines)).style(Style::default().bg(theme::BG)), area);
+        let selected = i == editor.selected;
+        let bg = if selected { theme::BG_HIGHLIGHT } else { theme::BG };
+
+        frame.render_widget(Paragraph::new("").style(Style::default().bg(bg)), row_area);
+
+        // When editing the selected row, use layout for TextArea widgets
+        // When not editing, no extra padding is added between key and value.
+        if selected && is_editing {
+            render_kv_row_editing(frame, editor, item, row_area, bg);
+        } else {
+            render_kv_row_static(frame, item, selected, row_area, bg);
+        }
+    }
+}
+
+fn render_kv_row_static(frame: &mut Frame, item: &KeyValue, selected: bool, area: Rect, bg: ratatui::style::Color) {
+    let prefix = if selected { "› " } else { "  " };
+    let checkbox = if item.enabled { "[✓] " } else { "[ ] " };
+    let checkbox_color = if item.enabled { theme::METHOD_GET } else { theme::TEXT_DIM };
+    let key_color = if selected { theme::ACCENT } else { theme::TEXT };
+
+    let line = Line::from(vec![
+        Span::styled(prefix, Style::default().fg(theme::ACCENT).bg(bg)),
+        Span::styled(checkbox, Style::default().fg(checkbox_color).bg(bg)),
+        Span::styled(&item.key, Style::default().fg(key_color).bg(bg)),
+        Span::styled(": ", Style::default().fg(theme::TEXT_DIM).bg(bg)),
+        Span::styled(&item.value, Style::default().fg(theme::TEXT).bg(bg)),
+    ]);
+
+    frame.render_widget(Paragraph::new(line).style(Style::default().bg(bg)), area);
+}
+
+fn render_kv_row_editing(frame: &mut Frame, editor: &KvEditor, item: &KeyValue, area: Rect, bg: ratatui::style::Color) {
+    // Layout: prefix + checkbox (6) | key input | colon (3) | value input
+    let prefix_width = 6u16; // "› [✓] "
+    let colon_width = 3u16;
+    let remaining = area.width.saturating_sub(prefix_width + colon_width);
+    let input_width = remaining / 2;
+
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(prefix_width),
+            Constraint::Length(input_width),
+            Constraint::Length(colon_width),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    let checkbox = if item.enabled { "[✓] " } else { "[ ] " };
+    let checkbox_color = if item.enabled { theme::METHOD_GET } else { theme::TEXT_DIM };
+    let prefix_line = Line::from(vec![
+        Span::styled("› ", Style::default().fg(theme::ACCENT).bg(bg)),
+        Span::styled(checkbox, Style::default().fg(checkbox_color).bg(bg)),
+    ]);
+    frame.render_widget(Paragraph::new(prefix_line).style(Style::default().bg(bg)), chunks[0]);
+
+    match editor.field {
+        KvField::Key => {
+            frame.render_widget(&editor.key_input, chunks[1]);
+            let val = textarea_value(&editor.value_input);
+            frame.render_widget(Paragraph::new(val).style(Style::default().fg(theme::TEXT).bg(bg)), chunks[3]);
+        }
+        KvField::Value => {
+            let key = textarea_value(&editor.key_input);
+            frame.render_widget(Paragraph::new(key).style(Style::default().fg(theme::TEXT).bg(bg)), chunks[1]);
+            frame.render_widget(&editor.value_input, chunks[3]);
+        }
+    }
+
+    frame.render_widget(Paragraph::new(" : ").style(Style::default().fg(theme::TEXT_DIM).bg(bg)), chunks[2]);
 }
 
 fn render_body_editor(frame: &mut Frame, app: &App, area: Rect) {

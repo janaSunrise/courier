@@ -10,7 +10,6 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
-use tui_input::backend::crossterm::EventHandler;
 
 use app::{App, EditFocus, Panel, RequestTab};
 use http::{HttpResult, RequestData};
@@ -185,9 +184,9 @@ fn handle_url_edit(app: &mut App, key: KeyEvent) {
         KeyCode::Esc => app.stop_editing(),
         KeyCode::Tab => app.cycle_method_next(),
         KeyCode::BackTab => app.cycle_method_prev(),
+        KeyCode::Enter => {} // Ignore enter for single-line input
         _ => {
-            // Let tui-input handle the rest
-            app.url_input.handle_event(&Event::Key(key));
+            app.url_input.input(key);
         }
     }
 }
@@ -206,10 +205,9 @@ fn handle_kv_edit(app: &mut App, key: KeyEvent, ctrl: bool) {
                 app.stop_editing();
             }
         }
+        KeyCode::Enter => {} // Ignore enter for single-line input
         _ => {
-            app.current_kv_editor_mut()
-                .current_input_mut()
-                .handle_event(&Event::Key(key));
+            app.current_kv_editor_mut().current_input_mut().input(key);
         }
     }
 }

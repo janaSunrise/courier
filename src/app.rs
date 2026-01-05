@@ -1,9 +1,8 @@
-use tui_input::Input;
 use tui_textarea::TextArea;
 use tui_widget_list::ListState;
 
 use crate::models::{HttpMethod, KeyValue, Request, RequestState, Response};
-use crate::utils::scroll_by;
+use crate::utils::{scroll_by, single_line_textarea, textarea_value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Panel {
@@ -64,20 +63,30 @@ impl KvField {
     }
 }
 
-#[derive(Default)]
 pub struct KvEditor {
     pub selected: usize,
     pub field: KvField,
-    pub key_input: Input,
-    pub value_input: Input,
+    pub key_input: TextArea<'static>,
+    pub value_input: TextArea<'static>,
+}
+
+impl Default for KvEditor {
+    fn default() -> Self {
+        Self {
+            selected: 0,
+            field: KvField::Key,
+            key_input: single_line_textarea(""),
+            value_input: single_line_textarea(""),
+        }
+    }
 }
 
 impl KvEditor {
     pub fn reset(&mut self) {
         self.selected = 0;
         self.field = KvField::Key;
-        self.key_input.reset();
-        self.value_input.reset();
+        self.key_input = single_line_textarea("");
+        self.value_input = single_line_textarea("");
     }
 
     pub fn select_next(&mut self, len: usize) {
@@ -96,7 +105,7 @@ impl KvEditor {
         self.field = self.field.toggle();
     }
 
-    pub fn current_input_mut(&mut self) -> &mut Input {
+    pub fn current_input_mut(&mut self) -> &mut TextArea<'static> {
         match self.field {
             KvField::Key => &mut self.key_input,
             KvField::Value => &mut self.value_input,
@@ -104,8 +113,8 @@ impl KvEditor {
     }
 
     pub fn sync_from_item(&mut self, item: &KeyValue) {
-        self.key_input = Input::new(item.key.clone());
-        self.value_input = Input::new(item.value.clone());
+        self.key_input = single_line_textarea(&item.key);
+        self.value_input = single_line_textarea(&item.value);
     }
 }
 
@@ -126,7 +135,7 @@ pub struct App<'a> {
     pub edit_focus: EditFocus,
 
     // URL
-    pub url_input: Input,
+    pub url_input: TextArea<'static>,
     pub method: HttpMethod,
 
     // Params & Headers
@@ -159,7 +168,7 @@ impl<'a> App<'a> {
             editing_request_idx: None,
             active_tab: RequestTab::default(),
             edit_focus: EditFocus::None,
-            url_input: Input::default(),
+            url_input: single_line_textarea(""),
             method: HttpMethod::Get,
             params: vec![],
             params_editor: KvEditor::default(),
@@ -173,7 +182,7 @@ impl<'a> App<'a> {
     }
 
     pub fn url(&self) -> &str {
-        self.url_input.value()
+        textarea_value(&self.url_input)
     }
 
     pub fn quit(&mut self) {
@@ -257,7 +266,7 @@ impl<'a> App<'a> {
 
         // Clear editor state for new request
         self.editing_request_idx = Some(0);
-        self.url_input = Input::default();
+        self.url_input = single_line_textarea("");
         self.method = HttpMethod::Get;
         self.params = vec![];
         self.headers = vec![];
@@ -298,7 +307,7 @@ impl<'a> App<'a> {
         let Some(req) = self.requests.get(idx).cloned() else { return };
 
         self.editing_request_idx = Some(idx);
-        self.url_input = Input::new(req.url);
+        self.url_input = single_line_textarea(&req.url);
         self.method = req.method;
         self.params = req.params;
         self.headers = req.headers;
@@ -374,8 +383,8 @@ impl<'a> App<'a> {
         let (key, value) = {
             let editor = self.current_kv_editor();
             (
-                editor.key_input.value().to_string(),
-                editor.value_input.value().to_string(),
+                textarea_value(&editor.key_input).to_string(),
+                textarea_value(&editor.value_input).to_string(),
             )
         };
         if let Some(item) = self.current_kv_items_mut().get_mut(selected) {
@@ -390,8 +399,8 @@ impl<'a> App<'a> {
         let editor = self.current_kv_editor_mut();
         editor.selected = len.saturating_sub(1);
         editor.field = KvField::Key;
-        editor.key_input.reset();
-        editor.value_input.reset();
+        editor.key_input = single_line_textarea("");
+        editor.value_input = single_line_textarea("");
     }
 
     pub fn kv_delete(&mut self) {
