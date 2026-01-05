@@ -2,6 +2,7 @@ mod app;
 mod http;
 mod models;
 mod ui;
+mod utils;
 
 use std::time::Duration;
 
@@ -26,6 +27,7 @@ fn main() -> Result<()> {
 fn run(terminal: &mut DefaultTerminal) -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     let (tx, mut rx) = mpsc::unbounded_channel::<HttpResult>();
+    let client = http::build_client()?;
     let mut app = App::new();
 
     loop {
@@ -65,7 +67,7 @@ fn run(terminal: &mut DefaultTerminal) -> Result<()> {
         // Global shortcuts
         match key.code {
             KeyCode::Char('s') if ctrl => {
-                send_request(&rt, &mut app, tx.clone());
+                send_request(&rt, &mut app, tx.clone(), client.clone());
                 continue;
             }
             KeyCode::Char('c') if ctrl => {
@@ -78,7 +80,7 @@ fn run(terminal: &mut DefaultTerminal) -> Result<()> {
         // Handle based on edit focus
         match app.edit_focus {
             EditFocus::None => handle_normal_mode(&mut app, key.code, ctrl),
-            EditFocus::Url => handle_url_edit(&mut app, key, ctrl),
+            EditFocus::Url => handle_url_edit(&mut app, key),
             EditFocus::KeyValue => handle_kv_edit(&mut app, key, ctrl),
             EditFocus::Body => handle_body_edit(&mut app, key, ctrl),
         }
@@ -178,7 +180,7 @@ fn handle_normal_mode(app: &mut App, code: KeyCode, ctrl: bool) {
     }
 }
 
-fn handle_url_edit(app: &mut App, key: KeyEvent, _ctrl: bool) {
+fn handle_url_edit(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => app.stop_editing(),
         KeyCode::Tab => app.cycle_method_next(),
@@ -222,7 +224,12 @@ fn handle_body_edit(app: &mut App, key: KeyEvent, ctrl: bool) {
     }
 }
 
-fn send_request(rt: &tokio::runtime::Runtime, app: &mut App, tx: mpsc::UnboundedSender<HttpResult>) {
+fn send_request(
+    rt: &tokio::runtime::Runtime,
+    app: &mut App,
+    tx: mpsc::UnboundedSender<HttpResult>,
+    client: http::Client,
+) {
     if app.is_loading() {
         return;
     }
@@ -258,20 +265,13 @@ fn send_request(rt: &tokio::runtime::Runtime, app: &mut App, tx: mpsc::Unbounded
 
     app.set_loading();
     rt.spawn(async move {
-        http::send_request(data, tx).await;
+        http::send_request(client, data, tx).await;
     });
 }
 
 fn response_lines(app: &App) -> usize {
-    let models::RequestState::Success(ref resp) = app.request_state else {
-        return 0;
-    };
-
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp.body)
-        && let Ok(pretty) = serde_json::to_string_pretty(&json)
-    {
-        return pretty.lines().count();
+    match &app.request_state {
+        models::RequestState::Success(resp) => resp.line_count(),
+        _ => 0,
     }
-
-    resp.body.lines().count()
 }

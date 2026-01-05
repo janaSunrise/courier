@@ -10,6 +10,7 @@ use tui_widget_list::{ListBuilder, ListView};
 
 use crate::app::{App, EditFocus, KvField, KvEditor, Panel, RequestTab};
 use crate::models::{HttpMethod, KeyValue, Request, RequestState};
+use crate::utils::format_json_if_valid;
 
 pub mod theme {
     use ratatui::style::Color;
@@ -379,12 +380,7 @@ fn render_body_content(frame: &mut Frame, app: &App, area: Rect, is_editing: boo
     if is_editing {
         frame.render_widget(&app.body_editor, area);
     } else {
-        let content = if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_text) {
-            serde_json::to_string_pretty(&json).unwrap_or_else(|_| body_text.to_string())
-        } else {
-            body_text.to_string()
-        };
-
+        let content = format_json_if_valid(body_text);
         let paragraph = Paragraph::new(content)
             .style(Style::default().fg(theme::TEXT).bg(theme::BG));
         frame.render_widget(paragraph, area);
@@ -438,12 +434,7 @@ fn render_response(frame: &mut Frame, app: &App, area: Rect) {
             frame.render_widget(text, inner);
         }
         RequestState::Success(resp) => {
-            let formatted = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp.body) {
-                serde_json::to_string_pretty(&json).unwrap_or_else(|_| resp.body.clone())
-            } else {
-                resp.body.clone()
-            };
-
+            let formatted = resp.formatted_body();
             let lines: Vec<Line> = formatted
                 .lines()
                 .skip(app.response_scroll)

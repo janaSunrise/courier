@@ -1,11 +1,9 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use reqwest::Client;
 use tokio::sync::mpsc;
 
 use crate::models::{HttpMethod, KeyValue, Response};
-
-const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug)]
 pub enum HttpResult {
@@ -21,24 +19,12 @@ pub struct RequestData {
     pub body: String,
 }
 
-fn build_client() -> Result<Client, reqwest::Error> {
-    Client::builder()
-        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .user_agent("Courier/0.1.0")
-        .build()
-}
-
-pub async fn send_request(data: RequestData, tx: mpsc::UnboundedSender<HttpResult>) {
-    let result = execute_request(data).await;
+pub async fn send_request(client: Client, data: RequestData, tx: mpsc::UnboundedSender<HttpResult>) {
+    let result = execute_request(&client, data).await;
     let _ = tx.send(result);
 }
 
-async fn execute_request(data: RequestData) -> HttpResult {
-    let client = match build_client() {
-        Ok(c) => c,
-        Err(e) => return HttpResult::Error(format!("Failed to create client: {}", e)),
-    };
-
+async fn execute_request(client: &Client, data: RequestData) -> HttpResult {
     let url = build_url_with_params(&data.url, &data.params);
 
     let start = Instant::now();

@@ -3,6 +3,7 @@ use tui_textarea::TextArea;
 use tui_widget_list::ListState;
 
 use crate::models::{HttpMethod, KeyValue, Request, RequestState, Response};
+use crate::utils::scroll_by;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Panel {
@@ -464,13 +465,11 @@ impl<'a> App<'a> {
 
     // Scrolling
     pub fn scroll_up(&mut self, lines: usize) {
-        self.response_scroll = self.response_scroll.saturating_sub(lines);
+        scroll_by(&mut self.response_scroll, -(lines as isize), usize::MAX);
     }
 
     pub fn scroll_down(&mut self, lines: usize, max: usize) {
-        if max > 0 {
-            self.response_scroll = (self.response_scroll + lines).min(max.saturating_sub(1));
-        }
+        scroll_by(&mut self.response_scroll, lines as isize, max);
     }
 
     pub fn scroll_top(&mut self) {
@@ -484,12 +483,10 @@ impl<'a> App<'a> {
     }
 
     pub fn help_scroll_up(&mut self, lines: usize) {
-        self.help_scroll = self.help_scroll.saturating_sub(lines);
+        scroll_by(&mut self.help_scroll, -(lines as isize), usize::MAX);
     }
 
     pub fn help_scroll_down(&mut self, lines: usize, max: usize) {
-        if max > 0 {
-            self.help_scroll = (self.help_scroll + lines).min(max.saturating_sub(1));
-        }
+        scroll_by(&mut self.help_scroll, lines as isize, max);
     }
 }
