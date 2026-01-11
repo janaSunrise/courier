@@ -6,8 +6,8 @@ use ratatui::{
     widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph, Tabs},
 };
 
-use crate::app::{App, EditFocus, KvField, KvEditor, Panel, RequestTab};
-use crate::models::{HttpMethod, KeyValue, Request, RequestState};
+use crate::app::{App, AuthField, EditFocus, KvField, KvEditor, Panel, RequestTab};
+use crate::models::{AuthType, HttpMethod, KeyValue, Request, RequestState};
 use crate::utils::{format_json_if_valid, textarea_value};
 
 pub mod theme {
@@ -147,11 +147,12 @@ fn render_request_editor(frame: &mut Frame, app: &App, area: Rect) {
             let label = match app.active_tab {
                 RequestTab::Params => "PARAMS",
                 RequestTab::Headers => "HEADERS",
-                RequestTab::Body => "BODY",
+                RequestTab::Body | RequestTab::Auth => "BODY",
             };
             Line::from(Span::styled(format!(" {} ", label), Style::default().fg(theme::METHOD_POST).add_modifier(Modifier::BOLD)))
         },
         EditFocus::Body => Line::from(Span::styled(" BODY ", Style::default().fg(theme::METHOD_PUT).add_modifier(Modifier::BOLD))),
+        EditFocus::Auth => Line::from(Span::styled(" AUTH ", Style::default().fg(theme::METHOD_DELETE).add_modifier(Modifier::BOLD))),
         EditFocus::None => Line::from(""),
     };
 
@@ -202,11 +203,12 @@ fn render_url_bar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_tabs(frame: &mut Frame, app: &App, area: Rect) {
-    let tabs = ["Params", "Headers", "Body"];
+    let tabs = ["Params", "Headers", "Body", "Auth"];
     let selected = match app.active_tab {
         RequestTab::Params => 0,
         RequestTab::Headers => 1,
         RequestTab::Body => 2,
+        RequestTab::Auth => 3,
     };
 
     let tab_titles: Vec<Line> = tabs.iter().map(|t| Line::from(*t)).collect();
@@ -224,6 +226,7 @@ fn render_tab_content(frame: &mut Frame, app: &App, area: Rect) {
     match app.active_tab {
         RequestTab::Params => render_kv_list(frame, app, area, &app.params, &app.params_editor),
         RequestTab::Headers => render_kv_list(frame, app, area, &app.headers, &app.headers_editor),
+        RequestTab::Auth => render_auth_editor(frame, app, area),
         RequestTab::Body => render_body_editor(frame, app, area),
     }
 }
@@ -367,6 +370,144 @@ fn render_body_content(frame: &mut Frame, app: &App, area: Rect, is_editing: boo
     }
 }
 
+fn render_auth_editor(frame: &mut Frame, app: &App, area: Rect) {
+    let is_editing = app.edit_focus == EditFocus::Auth;
+
+    // Layout: type selector row + fields
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(0)])
+        .split(area);
+
+    // Auth type selector with navigation hint
+    let type_line = Line::from(vec![
+        Span::styled("< ", Style::default().fg(theme::TEXT_DIM)),
+        Span::styled(
+            app.auth.variant_name(),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" >", Style::default().fg(theme::TEXT_DIM)),
+        Span::styled("  (Tab to cycle)", Style::default().fg(theme::TEXT_DIM)),
+    ]);
+    frame.render_widget(
+        Paragraph::new(type_line).style(Style::default().bg(theme::BG)),
+        layout[0],
+    );
+
+    // Render fields based on auth type
+    match &app.auth {
+        AuthType::None => {
+            let hint = Paragraph::new(Span::styled(
+                "No authentication configured",
+                Style::default().fg(theme::TEXT_DIM),
+            ))
+            .centered();
+            frame.render_widget(hint, layout[1]);
+        }
+        AuthType::Basic { username, password } => {
+            render_auth_fields(
+                frame,
+                app,
+                layout[1],
+                is_editing,
+                &[("Username", username), ("Password", password)],
+                true, // mask second field
+            );
+        }
+        AuthType::Bearer { token } => {
+            render_auth_fields(
+                frame,
+                app,
+                layout[1],
+                is_editing,
+                &[("Token", token)],
+                true, // mask field
+            );
+        }
+        AuthType::ApiKey { key, value } => {
+            render_auth_fields(
+                frame,
+                app,
+                layout[1],
+                is_editing,
+                &[("Header Name", key), ("Header Value", value)],
+                false, // don't mask
+            );
+        }
+    }
+}
+
+fn render_auth_fields(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    is_editing: bool,
+    fields: &[(&str, &str)],
+    mask_sensitive: bool,
+) {
+    let constraints: Vec<Constraint> = fields
+        .iter()
+        .map(|_| Constraint::Length(1))
+        .chain(std::iter::once(Constraint::Min(0)))
+        .collect();
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(area);
+
+    let label_width = 14u16;
+
+    for (i, (label, value)) in fields.iter().enumerate() {
+        let is_first_field = i == 0;
+        let is_selected = match app.auth_editor.field {
+            AuthField::First => is_first_field,
+            AuthField::Second => !is_first_field,
+        };
+        let is_active = is_editing && is_selected;
+
+        let bg = if is_active { theme::BG_HIGHLIGHT } else { theme::BG };
+
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(label_width), Constraint::Min(0)])
+            .split(rows[i]);
+
+        // Label
+        let label_color = if is_active { theme::ACCENT } else { theme::TEXT_DIM };
+        frame.render_widget(
+            Paragraph::new(format!("{}: ", label)).style(Style::default().fg(label_color).bg(bg)),
+            chunks[0],
+        );
+
+        // Value: show TextArea when actively editing, otherwise show text
+        if is_active {
+            let input = if is_first_field {
+                &app.auth_editor.first_input
+            } else {
+                &app.auth_editor.second_input
+            };
+            frame.render_widget(input, chunks[1]);
+        } else {
+            // Mask sensitive fields: second field (password) or single field (bearer token)
+            let is_single_field = fields.len() == 1;
+            let should_mask = mask_sensitive && (is_single_field || !is_first_field) && !value.is_empty();
+            let display = if value.is_empty() {
+                "(empty)".to_string()
+            } else if should_mask {
+                "•".repeat(value.len().min(20))
+            } else {
+                (*value).to_string()
+            };
+            let color = if value.is_empty() { theme::TEXT_DIM } else { theme::TEXT };
+            frame.render_widget(
+                Paragraph::new(display).style(Style::default().fg(color).bg(bg)),
+                chunks[1],
+            );
+        }
+    }
+}
+
 fn render_response(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focused_panel == Panel::Response;
     let border = if focused { theme::BORDER_FOCUSED } else { theme::BORDER };
@@ -447,6 +588,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         EditFocus::Url => Span::styled(" INSERT ", Style::default().fg(theme::BG).bg(theme::ACCENT)),
         EditFocus::KeyValue => Span::styled(" INSERT ", Style::default().fg(theme::BG).bg(theme::METHOD_POST)),
         EditFocus::Body => Span::styled(" INSERT ", Style::default().fg(theme::BG).bg(theme::METHOD_PUT)),
+        EditFocus::Auth => Span::styled(" INSERT ", Style::default().fg(theme::BG).bg(theme::METHOD_DELETE)),
     };
 
     let hints: Vec<Span> = if app.edit_focus == EditFocus::Body {
@@ -470,7 +612,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             ],
             Panel::RequestEditor => vec![
                 Span::styled("i", key), Span::styled(":url ", desc),
-                Span::styled("1-3", key), Span::styled(":tab ", desc),
+                Span::styled("1-4", key), Span::styled(":tab ", desc),
                 Span::styled("a", key), Span::styled(":add ", desc),
                 Span::styled("C-S", key), Span::styled(":send", desc),
             ],
@@ -502,8 +644,36 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(all)).style(Style::default().bg(theme::BG)), area);
 }
 
-fn render_help_overlay(frame: &mut Frame, app: &App, area: Rect) {
-    let (w, h) = (50, 26);
+fn render_help_overlay(frame: &mut Frame, _app: &App, area: Rect) {
+    const HELP_LINES: &[(&str, &str)] = &[
+        ("", "Navigation"),
+        ("Tab/h/l", "Switch panels"),
+        ("j/k", "Navigate/scroll"),
+        ("1-4", "Switch tabs"),
+        ("", ""),
+        ("", "Requests"),
+        ("Ctrl+S", "Send request"),
+        ("i", "Edit URL"),
+        ("a", "Add param/header"),
+        ("e", "Edit body"),
+        ("Enter", "Edit selected"),
+        ("n", "New request"),
+        ("d", "Delete"),
+        ("", ""),
+        ("", "Authentication"),
+        ("Tab", "Cycle auth type"),
+        ("Enter", "Edit auth fields"),
+        ("", ""),
+        ("", "Body Editing"),
+        ("Ctrl+F", "Format JSON"),
+        ("Esc", "Stop editing"),
+        ("", ""),
+        ("", "General"),
+        ("?", "Toggle help"),
+        ("q", "Quit"),
+    ];
+
+    let (w, h) = (50, 28);
     let help_area = Rect {
         x: area.width.saturating_sub(w) / 2,
         y: area.height.saturating_sub(h) / 2,
@@ -513,46 +683,44 @@ fn render_help_overlay(frame: &mut Frame, app: &App, area: Rect) {
 
     frame.render_widget(Clear, help_area);
 
-    let section = Style::default().fg(theme::TEXT_DIM).add_modifier(Modifier::BOLD);
-    let k = Style::default().fg(theme::ACCENT);
-    let d = Style::default().fg(theme::TEXT);
+    let items: Vec<ListItem> = HELP_LINES
+        .iter()
+        .map(|&(key, desc)| {
+            if key.is_empty() && desc.is_empty() {
+                ListItem::new(Line::from(""))
+            } else if key.is_empty() {
+                ListItem::new(Line::styled(
+                    format!("  {}", desc),
+                    Style::default()
+                        .fg(theme::ACCENT)
+                        .add_modifier(Modifier::BOLD),
+                ))
+            } else {
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("    {:14}", key),
+                        Style::default().fg(theme::ACCENT),
+                    ),
+                    Span::styled(desc, Style::default().fg(theme::TEXT)),
+                ]))
+            }
+        })
+        .collect();
 
-    let lines = vec![
-        Line::from(Span::styled("NAVIGATION", section)),
-        Line::from(vec![Span::styled("  Tab/h/l       ", k), Span::styled("Switch panels", d)]),
-        Line::from(vec![Span::styled("  j/k           ", k), Span::styled("Navigate list/scroll", d)]),
-        Line::from(vec![Span::styled("  1/2/3         ", k), Span::styled("Switch tabs", d)]),
-        Line::from(""),
-        Line::from(Span::styled("REQUESTS", section)),
-        Line::from(vec![Span::styled("  Ctrl+S        ", k), Span::styled("Send request", d)]),
-        Line::from(vec![Span::styled("  i             ", k), Span::styled("Edit URL", d)]),
-        Line::from(vec![Span::styled("  a             ", k), Span::styled("Add param/header", d)]),
-        Line::from(vec![Span::styled("  e             ", k), Span::styled("Edit body", d)]),
-        Line::from(vec![Span::styled("  Enter         ", k), Span::styled("Edit selected item", d)]),
-        Line::from(vec![Span::styled("  n             ", k), Span::styled("New request", d)]),
-        Line::from(vec![Span::styled("  d             ", k), Span::styled("Delete item/request", d)]),
-        Line::from(""),
-        Line::from(Span::styled("BODY EDITING", section)),
-        Line::from(vec![Span::styled("  Ctrl+F        ", k), Span::styled("Format JSON", d)]),
-        Line::from(vec![Span::styled("  Esc           ", k), Span::styled("Stop editing", d)]),
-        Line::from(""),
-        Line::from(Span::styled("GENERAL", section)),
-        Line::from(vec![Span::styled("  ?             ", k), Span::styled("Toggle help", d)]),
-        Line::from(vec![Span::styled("  q             ", k), Span::styled("Quit", d)]),
-    ];
+    let list = List::new(items).style(Style::default().bg(theme::BG_HIGHLIGHT)).block(
+        Block::default()
+            .title(" Help ")
+            .title_style(
+                Style::default()
+                    .fg(theme::ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme::BORDER))
+            .style(Style::default().bg(theme::BG_HIGHLIGHT)),
+    );
 
-    let help = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(" Help ")
-                .title_style(Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme::BORDER))
-                .style(Style::default().bg(theme::BG_HIGHLIGHT)),
-        )
-        .scroll((app.help_scroll as u16, 0));
-
-    frame.render_widget(help, help_area);
+    frame.render_widget(list, help_area);
 }
 
 fn method_color(method: HttpMethod) -> ratatui::style::Color {

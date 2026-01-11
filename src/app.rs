@@ -1,7 +1,7 @@
 use tui_textarea::TextArea;
 use ratatui::widgets::ListState;
 
-use crate::models::{HttpMethod, KeyValue, Request, RequestState, Response};
+use crate::models::{AuthType, HttpMethod, KeyValue, Request, RequestState, Response};
 use crate::utils::{scroll_by, single_line_textarea, textarea_value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -36,6 +36,7 @@ pub enum RequestTab {
     Params,
     Headers,
     Body,
+    Auth,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -45,6 +46,7 @@ pub enum EditFocus {
     Url,
     KeyValue,
     Body,
+    Auth,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -136,6 +138,75 @@ impl KvEditor {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AuthField {
+    #[default]
+    First,
+    Second,
+}
+
+impl AuthField {
+    pub fn toggle(self) -> Self {
+        match self {
+            AuthField::First => AuthField::Second,
+            AuthField::Second => AuthField::First,
+        }
+    }
+}
+
+pub struct AuthEditor {
+    pub field: AuthField,
+    pub first_input: TextArea<'static>,
+    pub second_input: TextArea<'static>,
+}
+
+impl Default for AuthEditor {
+    fn default() -> Self {
+        Self {
+            field: AuthField::First,
+            first_input: single_line_textarea(""),
+            second_input: single_line_textarea(""),
+        }
+    }
+}
+
+impl AuthEditor {
+    pub fn reset(&mut self) {
+        self.field = AuthField::First;
+        self.first_input = single_line_textarea("");
+        self.second_input = single_line_textarea("");
+    }
+
+    pub fn toggle_field(&mut self) {
+        self.field = self.field.toggle();
+    }
+
+    pub fn current_input_mut(&mut self) -> &mut TextArea<'static> {
+        match self.field {
+            AuthField::First => &mut self.first_input,
+            AuthField::Second => &mut self.second_input,
+        }
+    }
+
+    pub fn sync_from_auth(&mut self, auth: &AuthType) {
+        match auth {
+            AuthType::None => self.reset(),
+            AuthType::Basic { username, password } => {
+                self.first_input = single_line_textarea(username);
+                self.second_input = single_line_textarea(password);
+            }
+            AuthType::Bearer { token } => {
+                self.first_input = single_line_textarea(token);
+                self.second_input = single_line_textarea("");
+            }
+            AuthType::ApiKey { key, value } => {
+                self.first_input = single_line_textarea(key);
+                self.second_input = single_line_textarea(value);
+            }
+        }
+    }
+}
+
 pub struct App<'a> {
     // UI state
     pub focused_panel: Panel,
@@ -166,6 +237,10 @@ pub struct App<'a> {
     pub body_editor: TextArea<'a>,
     pub json_error: Option<String>,
 
+    // Auth
+    pub auth: AuthType,
+    pub auth_editor: AuthEditor,
+
     // Response
     pub request_state: RequestState,
     pub response_scroll: usize,
@@ -194,6 +269,8 @@ impl<'a> App<'a> {
             headers_editor: KvEditor::default(),
             body_editor,
             json_error: None,
+            auth: AuthType::None,
+            auth_editor: AuthEditor::default(),
             request_state: RequestState::default(),
             response_scroll: 0,
         }
@@ -303,8 +380,10 @@ impl<'a> App<'a> {
         self.params = vec![];
         self.headers = vec![];
         self.set_body("");
+        self.auth = AuthType::None;
         self.params_editor.reset();
         self.headers_editor.reset();
+        self.auth_editor.reset();
         self.request_state = RequestState::default();
     }
 
@@ -344,8 +423,10 @@ impl<'a> App<'a> {
         self.params = req.params;
         self.headers = req.headers;
         self.set_body(&req.body);
+        self.auth = req.auth;
         self.params_editor.reset();
         self.headers_editor.reset();
+        self.auth_editor.sync_from_auth(&self.auth);
     }
 
     // Editing
@@ -363,7 +444,33 @@ impl<'a> App<'a> {
         if self.edit_focus == EditFocus::Body {
             self.validate_json();
         }
+        if self.edit_focus == EditFocus::Auth {
+            self.sync_auth_from_editor();
+        }
         self.edit_focus = EditFocus::None;
+    }
+
+    // Auth methods
+    pub fn cycle_auth_type_next(&mut self) {
+        self.auth = self.auth.cycle_next();
+        self.auth_editor.sync_from_auth(&self.auth);
+    }
+
+    pub fn cycle_auth_type_prev(&mut self) {
+        self.auth = self.auth.cycle_prev();
+        self.auth_editor.sync_from_auth(&self.auth);
+    }
+
+    pub fn sync_auth_from_editor(&mut self) {
+        let first = textarea_value(&self.auth_editor.first_input).to_string();
+        let second = textarea_value(&self.auth_editor.second_input).to_string();
+
+        self.auth = match &self.auth {
+            AuthType::None => AuthType::None,
+            AuthType::Basic { .. } => AuthType::Basic { username: first, password: second },
+            AuthType::Bearer { .. } => AuthType::Bearer { token: first },
+            AuthType::ApiKey { .. } => AuthType::ApiKey { key: first, value: second },
+        };
     }
 
     pub fn cycle_method_next(&mut self) {
@@ -378,28 +485,28 @@ impl<'a> App<'a> {
     pub fn current_kv_items(&self) -> &Vec<KeyValue> {
         match self.active_tab {
             RequestTab::Params => &self.params,
-            RequestTab::Headers | RequestTab::Body => &self.headers,
+            RequestTab::Headers | RequestTab::Body | RequestTab::Auth => &self.headers,
         }
     }
 
     fn current_kv_items_mut(&mut self) -> &mut Vec<KeyValue> {
         match self.active_tab {
             RequestTab::Params => &mut self.params,
-            RequestTab::Headers | RequestTab::Body => &mut self.headers,
+            RequestTab::Headers | RequestTab::Body | RequestTab::Auth => &mut self.headers,
         }
     }
 
     pub fn current_kv_editor(&self) -> &KvEditor {
         match self.active_tab {
             RequestTab::Params => &self.params_editor,
-            RequestTab::Headers | RequestTab::Body => &self.headers_editor,
+            RequestTab::Headers | RequestTab::Body | RequestTab::Auth => &self.headers_editor,
         }
     }
 
     pub fn current_kv_editor_mut(&mut self) -> &mut KvEditor {
         match self.active_tab {
             RequestTab::Params => &mut self.params_editor,
-            RequestTab::Headers | RequestTab::Body => &mut self.headers_editor,
+            RequestTab::Headers | RequestTab::Body | RequestTab::Auth => &mut self.headers_editor,
         }
     }
 

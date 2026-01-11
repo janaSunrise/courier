@@ -3,7 +3,9 @@ use std::time::Instant;
 use reqwest::Client;
 use tokio::sync::mpsc;
 
-use crate::models::{HttpMethod, KeyValue, Response};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+use crate::models::{AuthType, HttpMethod, KeyValue, Response};
 
 #[derive(Debug)]
 pub enum HttpResult {
@@ -17,6 +19,7 @@ pub struct RequestData {
     pub params: Vec<KeyValue>,
     pub headers: Vec<KeyValue>,
     pub body: String,
+    pub auth: AuthType,
 }
 
 pub async fn send_request(client: Client, data: RequestData, tx: mpsc::UnboundedSender<HttpResult>) {
@@ -38,6 +41,9 @@ async fn execute_request(client: &Client, data: RequestData) -> HttpResult {
         HttpMethod::Head => client.head(&url),
         HttpMethod::Options => client.request(reqwest::Method::OPTIONS, &url),
     };
+
+    // Apply authentication header before custom headers
+    request = apply_auth_header(request, &data.auth);
 
     for header in &data.headers {
         if header.enabled && !header.key.is_empty() {
@@ -134,5 +140,24 @@ fn build_url_with_params(base_url: &str, params: &[KeyValue]) -> String {
         format!("{}&{}", base_url, query)
     } else {
         format!("{}?{}", base_url, query)
+    }
+}
+
+fn apply_auth_header(
+    request: reqwest::RequestBuilder,
+    auth: &AuthType,
+) -> reqwest::RequestBuilder {
+    match auth {
+        AuthType::None => request,
+        AuthType::Basic { username, password } => {
+            let credentials = format!("{}:{}", username, password);
+            let encoded = STANDARD.encode(credentials);
+            request.header("Authorization", format!("Basic {}", encoded))
+        }
+        AuthType::Bearer { token } if !token.is_empty() => {
+            request.header("Authorization", format!("Bearer {}", token))
+        }
+        AuthType::ApiKey { key, value } if !key.is_empty() => request.header(key, value),
+        _ => request,
     }
 }

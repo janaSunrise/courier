@@ -29,6 +29,48 @@ pub enum HttpMethod {
     Options,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum AuthType {
+    #[default]
+    None,
+    Basic { username: String, password: String },
+    Bearer { token: String },
+    ApiKey { key: String, value: String },
+}
+
+impl AuthType {
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            AuthType::None => "None",
+            AuthType::Basic { .. } => "Basic",
+            AuthType::Bearer { .. } => "Bearer",
+            AuthType::ApiKey { .. } => "API Key",
+        }
+    }
+
+    pub fn cycle_next(&self) -> AuthType {
+        match self {
+            AuthType::None => AuthType::Basic { username: String::new(), password: String::new() },
+            AuthType::Basic { .. } => AuthType::Bearer { token: String::new() },
+            AuthType::Bearer { .. } => AuthType::ApiKey { key: String::new(), value: String::new() },
+            AuthType::ApiKey { .. } => AuthType::None,
+        }
+    }
+
+    pub fn cycle_prev(&self) -> AuthType {
+        match self {
+            AuthType::None => AuthType::ApiKey { key: String::new(), value: String::new() },
+            AuthType::Basic { .. } => AuthType::None,
+            AuthType::Bearer { .. } => AuthType::Basic { username: String::new(), password: String::new() },
+            AuthType::ApiKey { .. } => AuthType::Bearer { token: String::new() },
+        }
+    }
+
+    pub fn has_two_fields(&self) -> bool {
+        matches!(self, AuthType::Basic { .. } | AuthType::ApiKey { .. })
+    }
+}
+
 impl HttpMethod {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -74,6 +116,7 @@ pub struct Request {
     pub params: Vec<KeyValue>,
     pub headers: Vec<KeyValue>,
     pub body: String,
+    pub auth: AuthType,
     pub created_at: SystemTime,
 }
 
@@ -85,6 +128,7 @@ impl Request {
             params: vec![],
             headers: vec![],
             body: String::new(),
+            auth: AuthType::None,
             created_at: SystemTime::now(),
         }
     }

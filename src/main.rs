@@ -82,6 +82,7 @@ fn run(terminal: &mut DefaultTerminal) -> Result<()> {
             EditFocus::Url => handle_url_edit(&mut app, key),
             EditFocus::KeyValue => handle_kv_edit(&mut app, key, ctrl),
             EditFocus::Body => handle_body_edit(&mut app, key, ctrl),
+            EditFocus::Auth => handle_auth_edit(&mut app, key),
         }
 
         if app.should_quit {
@@ -97,6 +98,18 @@ fn handle_normal_mode(app: &mut App, code: KeyCode, ctrl: bool) {
         KeyCode::Char('q') | KeyCode::Esc => app.quit(),
         KeyCode::Char('?') => app.toggle_help(),
 
+        // Auth type cycling (must come before general Tab handling)
+        KeyCode::Tab
+            if app.focused_panel == Panel::RequestEditor && app.active_tab == RequestTab::Auth =>
+        {
+            app.cycle_auth_type_next();
+        }
+        KeyCode::BackTab
+            if app.focused_panel == Panel::RequestEditor && app.active_tab == RequestTab::Auth =>
+        {
+            app.cycle_auth_type_prev();
+        }
+
         // Panel navigation
         KeyCode::Tab => app.focus_next_panel(),
         KeyCode::BackTab => app.focus_prev_panel(),
@@ -107,6 +120,7 @@ fn handle_normal_mode(app: &mut App, code: KeyCode, ctrl: bool) {
         KeyCode::Char('1') => app.active_tab = RequestTab::Params,
         KeyCode::Char('2') => app.active_tab = RequestTab::Headers,
         KeyCode::Char('3') => app.active_tab = RequestTab::Body,
+        KeyCode::Char('4') => app.active_tab = RequestTab::Auth,
 
         // Context-specific
         KeyCode::Char('j') | KeyCode::Down => match app.focused_panel {
@@ -167,6 +181,11 @@ fn handle_normal_mode(app: &mut App, code: KeyCode, ctrl: bool) {
         }
         KeyCode::Enter if app.focused_panel == Panel::RequestEditor => match app.active_tab {
             RequestTab::Body => app.start_editing(EditFocus::Body),
+            RequestTab::Auth => {
+                if !matches!(app.auth, models::AuthType::None) {
+                    app.start_editing(EditFocus::Auth);
+                }
+            }
             _ if !app.current_kv_items().is_empty() => {
                 app.start_editing(EditFocus::KeyValue);
             }
@@ -230,6 +249,19 @@ fn handle_body_edit(app: &mut App, key: KeyEvent, ctrl: bool) {
     }
 }
 
+fn handle_auth_edit(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.stop_editing(),
+        KeyCode::Tab | KeyCode::BackTab if app.auth.has_two_fields() => {
+            app.auth_editor.toggle_field();
+        }
+        KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter => {}
+        _ => {
+            app.auth_editor.current_input_mut().input(key);
+        }
+    }
+}
+
 fn send_request(
     rt: &tokio::runtime::Runtime,
     app: &mut App,
@@ -253,6 +285,7 @@ fn send_request(
         params: app.params.clone(),
         headers: app.headers.clone(),
         body: app.body(),
+        auth: app.auth.clone(),
         created_at: std::time::SystemTime::now(),
     };
 
@@ -267,6 +300,7 @@ fn send_request(
         params: app.params.clone(),
         headers: app.headers.clone(),
         body: app.body(),
+        auth: app.auth.clone(),
     };
 
     app.set_loading();
