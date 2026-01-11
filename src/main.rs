@@ -111,24 +111,32 @@ fn handle_normal_mode(app: &mut App, code: KeyCode, ctrl: bool) {
         // Context-specific
         KeyCode::Char('j') | KeyCode::Down => match app.focused_panel {
             Panel::Sidebar => app.select_next_request(),
-            Panel::Response => app.scroll_down(1, response_lines(app)),
+            Panel::Response => app.response_scroll_down(),
             Panel::RequestEditor => app.kv_select_next(),
         },
         KeyCode::Char('k') | KeyCode::Up => match app.focused_panel {
             Panel::Sidebar => app.select_prev_request(),
-            Panel::Response => app.scroll_up(1),
+            Panel::Response => app.response_scroll_up(),
             Panel::RequestEditor => app.kv_select_prev(),
         },
 
         // Response scrolling
-        KeyCode::Char('g') if app.focused_panel == Panel::Response => app.scroll_top(),
+        KeyCode::Char('g') if app.focused_panel == Panel::Response => app.response_scroll_top(),
         KeyCode::Char('G') if app.focused_panel == Panel::Response => {
-            app.scroll_bottom(response_lines(app))
+            app.response_scroll_bottom(response_lines(app))
         }
         KeyCode::Char('d') if ctrl && app.focused_panel == Panel::Response => {
-            app.scroll_down(10, response_lines(app))
+            // Scroll down by 10 lines
+            for _ in 0..10 {
+                app.response_scroll_down();
+            }
         }
-        KeyCode::Char('u') if ctrl && app.focused_panel == Panel::Response => app.scroll_up(10),
+        KeyCode::Char('u') if ctrl && app.focused_panel == Panel::Response => {
+            // Scroll up by 10 lines
+            for _ in 0..10 {
+                app.response_scroll_up();
+            }
+        }
 
         // Sidebar actions
         KeyCode::Char('n') if app.focused_panel == Panel::Sidebar => {

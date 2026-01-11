@@ -1,12 +1,10 @@
 use ratatui::{
     Frame,
-    buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph, Tabs, Widget},
+    widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph, Tabs},
 };
-use tui_widget_list::{ListBuilder, ListView};
 
 use crate::app::{App, EditFocus, KvField, KvEditor, Panel, RequestTab};
 use crate::models::{HttpMethod, KeyValue, Request, RequestState};
@@ -66,62 +64,40 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
 }
 
-#[derive(Clone)]
-struct RequestItem {
-    method: HttpMethod,
-    url: String,
-    time: String,
-    selected: bool,
-    max_url_len: usize,
-}
+fn create_request_list_item<'a>(req: &Request, max_url_len: usize) -> ListItem<'a> {
+    let placeholder = "https://api.example.com";
 
-impl RequestItem {
-    fn new(req: &Request, selected: bool, max_url_len: usize) -> Self {
-        Self {
-            method: req.method,
-            url: req.url.clone(),
-            time: req.relative_time(),
-            selected,
-            max_url_len,
-        }
-    }
-}
+    let (url_text, url_color) = if req.url.is_empty() {
+        (placeholder.to_string(), theme::TEXT_DIM)
+    } else if req.url.len() > max_url_len {
+        (format!("{}...", &req.url[..max_url_len.saturating_sub(3)]), theme::TEXT)
+    } else {
+        (req.url.clone(), theme::TEXT)
+    };
 
-impl Widget for RequestItem {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let bg = if self.selected { theme::BG_HIGHLIGHT } else { theme::BG };
-        let prefix = if self.selected { ">" } else { " " };
-        let placeholder = "https://api.example.com";
+    let line = Line::from(vec![
+        Span::styled(
+            format!("{:6}", req.method.as_str()),
+            Style::default().fg(method_color(req.method)),
+        ),
+        Span::styled(url_text, Style::default().fg(url_color)),
+        Span::styled(
+            format!(" {:>4}", req.relative_time()),
+            Style::default().fg(theme::TEXT_DIM),
+        ),
+    ]);
 
-        let (url_text, url_color) = if self.url.is_empty() {
-            (placeholder.to_string(), theme::TEXT_DIM)
-        } else if self.url.len() > self.max_url_len {
-            (format!("{}...", &self.url[..self.max_url_len.saturating_sub(3)]), theme::TEXT)
-        } else {
-            (self.url.clone(), theme::TEXT)
-        };
-
-        let line = Line::from(vec![
-            Span::styled(prefix, Style::default().fg(theme::ACCENT).bg(bg)),
-            Span::styled(format!("{:5}", self.method.as_str()), Style::default().fg(method_color(self.method)).bg(bg)),
-            Span::styled(url_text, Style::default().fg(url_color).bg(bg)),
-            Span::styled(format!(" {:>4}", self.time), Style::default().fg(theme::TEXT_DIM).bg(bg)),
-        ]);
-
-        // Fill remaining width with background
-        buf.set_style(area, Style::default().bg(bg));
-        line.render(area, buf);
-    }
+    ListItem::new(line)
 }
 
 fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == Panel::Sidebar;
-    let border = if focused { theme::BORDER_FOCUSED } else { theme::BORDER };
+    let border_color = if focused { theme::BORDER_FOCUSED } else { theme::BORDER };
 
     let block = Block::default()
         .title(format!(" Requests ({}) ", app.requests.len()))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(border))
+        .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(theme::BG));
 
     let inner = block.inner(area);
@@ -140,25 +116,24 @@ fn render_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    let max_url_len = inner.width.saturating_sub(12) as usize;
+    let max_url_len = inner.width.saturating_sub(14) as usize;
 
-    // Pre-build items to avoid closure lifetime issues
-    let items: Vec<RequestItem> = app.requests
+    let items: Vec<ListItem> = app.requests
         .iter()
-        .enumerate()
-        .map(|(i, req)| {
-            let selected = app.sidebar_state.selected == Some(i);
-            RequestItem::new(req, selected, max_url_len)
-        })
+        .map(|req| create_request_list_item(req, max_url_len))
         .collect();
 
-    let item_count = items.len();
-    let builder = ListBuilder::new(move |context| {
-        let item = items[context.index].clone();
-        (item, 1)
-    });
+    let list = List::new(items)
+        .style(Style::default().bg(theme::BG).fg(theme::TEXT))
+        .highlight_style(
+            Style::default()
+                .bg(theme::BG_HIGHLIGHT)
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD)
+        )
+        .highlight_symbol("> ")
+        .highlight_spacing(HighlightSpacing::Always);
 
-    let list = ListView::new(builder, item_count);
     frame.render_stateful_widget(list, inner, &mut app.sidebar_state);
 }
 
@@ -278,7 +253,7 @@ fn render_kv_list(frame: &mut Frame, app: &App, area: Rect, items: &[KeyValue], 
             height: 1,
         };
 
-        let selected = i == editor.selected;
+        let selected = i == editor.selected();
         let bg = if selected { theme::BG_HIGHLIGHT } else { theme::BG };
 
         frame.render_widget(Paragraph::new("").style(Style::default().bg(bg)), row_area);

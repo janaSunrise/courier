@@ -11,7 +11,6 @@ anyhow = "1.0"
 crossterm = { version = "0.28", features = ["event-stream"] }
 ratatui = "0.29.0"
 tui-textarea = "0.7.0"
-tui-widget-list = "0.13.0"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 serde_json = "1.0"

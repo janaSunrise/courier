@@ -1,5 +1,5 @@
 use tui_textarea::TextArea;
-use tui_widget_list::ListState;
+use ratatui::widgets::ListState;
 
 use crate::models::{HttpMethod, KeyValue, Request, RequestState, Response};
 use crate::utils::{scroll_by, single_line_textarea, textarea_value};
@@ -64,7 +64,7 @@ impl KvField {
 }
 
 pub struct KvEditor {
-    pub selected: usize,
+    pub state: ListState,
     pub field: KvField,
     pub key_input: TextArea<'static>,
     pub value_input: TextArea<'static>,
@@ -73,7 +73,7 @@ pub struct KvEditor {
 impl Default for KvEditor {
     fn default() -> Self {
         Self {
-            selected: 0,
+            state: ListState::default(),
             field: KvField::Key,
             key_input: single_line_textarea(""),
             value_input: single_line_textarea(""),
@@ -83,22 +83,40 @@ impl Default for KvEditor {
 
 impl KvEditor {
     pub fn reset(&mut self) {
-        self.selected = 0;
+        self.state = ListState::default();
         self.field = KvField::Key;
         self.key_input = single_line_textarea("");
         self.value_input = single_line_textarea("");
     }
 
+    pub fn selected(&self) -> usize {
+        self.state.selected().unwrap_or(0)
+    }
+
+    pub fn select(&mut self, index: usize) {
+        self.state.select(Some(index));
+    }
+
     pub fn select_next(&mut self, len: usize) {
-        if len > 0 {
-            self.selected = (self.selected + 1) % len;
+        if len == 0 {
+            return;
         }
+        let i = match self.state.selected() {
+            Some(i) => (i + 1) % len,
+            None => 0,
+        };
+        self.state.select(Some(i));
     }
 
     pub fn select_prev(&mut self, len: usize) {
-        if len > 0 {
-            self.selected = self.selected.checked_sub(1).unwrap_or(len - 1);
+        if len == 0 {
+            return;
         }
+        let i = match self.state.selected() {
+            Some(i) => if i == 0 { len - 1 } else { i - 1 },
+            None => 0,
+        };
+        self.state.select(Some(i));
     }
 
     pub fn toggle_field(&mut self) {
@@ -243,15 +261,29 @@ impl<'a> App<'a> {
 
     // Sidebar
     pub fn selected_request(&self) -> usize {
-        self.sidebar_state.selected.unwrap_or(0)
+        self.sidebar_state.selected().unwrap_or(0)
     }
 
     pub fn select_next_request(&mut self) {
-        self.sidebar_state.next();
+        if self.requests.is_empty() {
+            return;
+        }
+        let i = match self.sidebar_state.selected() {
+            Some(i) => (i + 1) % self.requests.len(),
+            None => 0,
+        };
+        self.sidebar_state.select(Some(i));
     }
 
     pub fn select_prev_request(&mut self) {
-        self.sidebar_state.previous();
+        if self.requests.is_empty() {
+            return;
+        }
+        let i = match self.sidebar_state.selected() {
+            Some(i) => if i == 0 { self.requests.len() - 1 } else { i - 1 },
+            None => 0,
+        };
+        self.sidebar_state.select(Some(i));
     }
 
     pub fn add_request(&mut self, request: Request) {
@@ -372,14 +404,14 @@ impl<'a> App<'a> {
     }
 
     fn sync_kv_editor_from_items(&mut self) {
-        let selected = self.current_kv_editor().selected;
+        let selected = self.current_kv_editor().selected();
         if let Some(item) = self.current_kv_items().get(selected).cloned() {
             self.current_kv_editor_mut().sync_from_item(&item);
         }
     }
 
     fn sync_kv_items_from_editor(&mut self) {
-        let selected = self.current_kv_editor().selected;
+        let selected = self.current_kv_editor().selected();
         let (key, value) = {
             let editor = self.current_kv_editor();
             (
@@ -397,14 +429,14 @@ impl<'a> App<'a> {
         self.current_kv_items_mut().push(KeyValue::default());
         let len = self.current_kv_items().len();
         let editor = self.current_kv_editor_mut();
-        editor.selected = len.saturating_sub(1);
+        editor.select(len.saturating_sub(1));
         editor.field = KvField::Key;
         editor.key_input = single_line_textarea("");
         editor.value_input = single_line_textarea("");
     }
 
     pub fn kv_delete(&mut self) {
-        let selected = self.current_kv_editor().selected;
+        let selected = self.current_kv_editor().selected();
         let items = self.current_kv_items_mut();
         if items.is_empty() {
             return;
@@ -412,13 +444,13 @@ impl<'a> App<'a> {
         items.remove(selected);
         let new_len = items.len();
         let editor = self.current_kv_editor_mut();
-        if editor.selected >= new_len && new_len > 0 {
-            editor.selected = new_len - 1;
+        if editor.selected() >= new_len && new_len > 0 {
+            editor.select(new_len - 1);
         }
     }
 
     pub fn kv_toggle_enabled(&mut self) {
-        let selected = self.current_kv_editor().selected;
+        let selected = self.current_kv_editor().selected();
         if let Some(item) = self.current_kv_items_mut().get_mut(selected) {
             item.enabled = !item.enabled;
         }
@@ -472,20 +504,20 @@ impl<'a> App<'a> {
         matches!(self.request_state, RequestState::Loading)
     }
 
-    // Scrolling
-    pub fn scroll_up(&mut self, lines: usize) {
-        scroll_by(&mut self.response_scroll, -(lines as isize), usize::MAX);
+    // Response scrolling
+    pub fn response_scroll_up(&mut self) {
+        scroll_by(&mut self.response_scroll, -1, usize::MAX);
     }
 
-    pub fn scroll_down(&mut self, lines: usize, max: usize) {
-        scroll_by(&mut self.response_scroll, lines as isize, max);
+    pub fn response_scroll_down(&mut self) {
+        scroll_by(&mut self.response_scroll, 1, usize::MAX);
     }
 
-    pub fn scroll_top(&mut self) {
+    pub fn response_scroll_top(&mut self) {
         self.response_scroll = 0;
     }
 
-    pub fn scroll_bottom(&mut self, max: usize) {
+    pub fn response_scroll_bottom(&mut self, max: usize) {
         if max > 0 {
             self.response_scroll = max.saturating_sub(1);
         }

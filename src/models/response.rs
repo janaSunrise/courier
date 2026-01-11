@@ -36,12 +36,10 @@ impl Response {
         }
     }
 
-    /// Get body formatted as pretty JSON if valid, otherwise raw body
     pub fn formatted_body(&self) -> String {
         format_json_if_valid(&self.body)
     }
 
-    /// Count lines in formatted body
     pub fn line_count(&self) -> usize {
         self.formatted_body().lines().count()
     }
